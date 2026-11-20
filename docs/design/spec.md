@@ -1462,7 +1462,7 @@ eichhorn/                        repository root
 ### 11.6 Publishing on GitHub and PyPI
 
 Eichhorn is published as open source:
-- **Source, issues and releases** are on GitHub (`github.com/<owner>/eichhorn`).
+- **Source, issues and releases** are on GitHub (`github.com/jnehring/eichhorn`).
 - **Packages** are on PyPI (`pip install eichhorn`).
 
 **Repository files** (besides the code):
@@ -1470,7 +1470,7 @@ Eichhorn is published as open source:
 | File | Purpose |
 |---|---|
 | `README.md` | Front page on GitHub **and** PyPI: what it is, the diagram, a quick start, the features, and links to the docs. |
-| `LICENSE` | The licence text (open question, section 13). It must be decided before the first release. |
+| `LICENSE` | MIT licence. |
 | `CHANGELOG.md` | One section per version, in the [Keep a Changelog](https://keepachangelog.com) format. |
 | `CONTRIBUTING.md` | How to set up with uv, run the tests and send a pull request. |
 | `SECURITY.md` | How to report security problems privately, through GitHub's private vulnerability reporting. This matters because backups hold sensitive data. |
@@ -1511,7 +1511,7 @@ Eichhorn is published as open source:
 
 **Links in the README.** PyPI renders the README but can't resolve relative
 links. So the README uses **absolute** GitHub URLs for links and images
-(`https://github.com/<owner>/eichhorn/blob/main/docs/…`). Everywhere else in
+(`https://github.com/jnehring/eichhorn/blob/main/docs/…`). Everywhere else in
 `docs/`, relative links are used.
 
 ### 11.7 Documentation
@@ -1631,4 +1631,3 @@ its docs page is written.
 
 - **Mass-deletion guard:** mark a run as suspicious, and skip pruning, when
   it deletes an unusually large share of files?
-- **License:** MIT, Apache-2.0 or GPL-3.0?

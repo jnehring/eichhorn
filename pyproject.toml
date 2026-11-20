@@ -5,7 +5,8 @@ description = "Plain-file, hardlinked snapshot backups of servers and folders on
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Jan Nehring" }]
-# license = "…"  # to be decided before the first release (see docs/design/spec.md, section 13)
+license = "MIT"
+license-files = ["LICENSE"]
 keywords = ["backup", "snapshot", "hardlink", "rsync", "docker", "nextcloud", "immich"]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
@@ -24,6 +25,13 @@ dependencies = [
     "pyyaml>=6.0",
     "platformdirs>=4.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/jnehring/eichhorn"
+Documentation = "https://github.com/jnehring/eichhorn/tree/main/docs"
+Repository = "https://github.com/jnehring/eichhorn"
+Issues = "https://github.com/jnehring/eichhorn/issues"
+Changelog = "https://github.com/jnehring/eichhorn/blob/main/CHANGELOG.md"
 
 [project.scripts]
 eichhorn = "eichhorn.cli:main"

@@ -8,7 +8,7 @@ snapshots of plain files**. You can open a backup in Finder or Explorer and copy
 file back, without Eichhorn. Unchanged files are hardlinks, so every snapshot looks
 complete but only new data takes space.
 
-![Eichhorn architecture](https://raw.githubusercontent.com/OWNER/eichhorn/main/docs/architecture.png)
+![Eichhorn architecture](https://raw.githubusercontent.com/jnehring/eichhorn/main/docs/architecture.png)
 
 > [!WARNING]
 > Eichhorn is in early development. Milestone 1 (local folders, snapshots, the
@@ -55,14 +55,14 @@ eichhorn/targets/documents/snapshots/2026-11-20T14-30-05/files/documents/…
 
 ## Documentation
 
-The full documentation is in [`docs/`](https://github.com/OWNER/eichhorn/tree/main/docs):
+The full documentation is in [`docs/`](https://github.com/jnehring/eichhorn/tree/main/docs):
 
-- [Getting started](https://github.com/OWNER/eichhorn/blob/main/docs/getting-started.md)
-- [Installation](https://github.com/OWNER/eichhorn/blob/main/docs/installation.md)
-- [Concepts](https://github.com/OWNER/eichhorn/blob/main/docs/concepts.md)
-- [Configuration](https://github.com/OWNER/eichhorn/blob/main/docs/configuration.md)
-- [Command reference](https://github.com/OWNER/eichhorn/blob/main/docs/cli.md)
-- [Getting data back without Eichhorn](https://github.com/OWNER/eichhorn/blob/main/docs/recovery-without-eichhorn.md)
+- [Getting started](https://github.com/jnehring/eichhorn/blob/main/docs/getting-started.md)
+- [Installation](https://github.com/jnehring/eichhorn/blob/main/docs/installation.md)
+- [Concepts](https://github.com/jnehring/eichhorn/blob/main/docs/concepts.md)
+- [Configuration](https://github.com/jnehring/eichhorn/blob/main/docs/configuration.md)
+- [Command reference](https://github.com/jnehring/eichhorn/blob/main/docs/cli.md)
+- [Getting data back without Eichhorn](https://github.com/jnehring/eichhorn/blob/main/docs/recovery-without-eichhorn.md)
 
 ## Roadmap
 
@@ -76,10 +76,10 @@ The full documentation is in [`docs/`](https://github.com/OWNER/eichhorn/tree/ma
 | 6 | Web interface with point-in-time browser and statistics | planned |
 | 7 | Release 0.1.0 on PyPI | planned |
 
-The design is described in the [specification](https://github.com/OWNER/eichhorn/blob/main/docs/design/spec.md).
+The design is described in the [specification](https://github.com/jnehring/eichhorn/blob/main/docs/design/spec.md).
 
 ## Contributing
 
-See [CONTRIBUTING.md](https://github.com/OWNER/eichhorn/blob/main/CONTRIBUTING.md).
+See [CONTRIBUTING.md](https://github.com/jnehring/eichhorn/blob/main/CONTRIBUTING.md).
 Security problems: please report them privately, see
-[SECURITY.md](https://github.com/OWNER/eichhorn/blob/main/SECURITY.md).
+[SECURITY.md](https://github.com/jnehring/eichhorn/blob/main/SECURITY.md).

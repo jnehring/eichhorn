@@ -7,7 +7,7 @@ This page explains how to work on Eichhorn: setup, tests, documentation and rele
 Eichhorn uses [uv](https://docs.astral.sh/uv/) for everything.
 
 ```bash
-git clone https://github.com/OWNER/eichhorn.git
+git clone https://github.com/jnehring/eichhorn.git
 cd eichhorn
 uv sync                     # creates .venv with Eichhorn and the dev tools
 uv run eichhorn --help

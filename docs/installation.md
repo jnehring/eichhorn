@@ -60,7 +60,7 @@ pipx upgrade eichhorn
 ```
 
 The storage format on your drives is versioned. A newer Eichhorn reads older drives;
-the [changelog](https://github.com/OWNER/eichhorn/blob/main/CHANGELOG.md) says when a
+the [changelog](https://github.com/jnehring/eichhorn/blob/main/CHANGELOG.md) says when a
 version changes the format.
 
 ---
