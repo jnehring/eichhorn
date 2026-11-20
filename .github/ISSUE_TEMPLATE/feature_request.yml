@@ -1,0 +1,16 @@
+name: Feature request
+description: Suggest an idea for Eichhorn.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What do you want to do?
+      description: Describe the situation and what is missing.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: How could Eichhorn help? Check docs/design/spec.md – it may already be planned.

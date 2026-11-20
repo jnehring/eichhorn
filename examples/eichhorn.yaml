@@ -1,0 +1,15 @@
+# Global settings. Copy to your config folder (see docs/configuration.md).
+defaults:
+  checksums: true
+  engine: auto
+  keep_awake: true
+  retention:
+    keep_last: 6
+    keep_monthly: 12
+
+# Repositories are usually added by `eichhorn repo init`, which writes
+# repositories.yaml. You can also list them here:
+# repositories:
+#   - id: 8f3c2a1e-5b7d-4e0a-9c61-2f4d8e9b7a10
+#     name: Backup-A
+#     paths: [/mnt/nas/eichhorn]

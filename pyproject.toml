@@ -1,0 +1,58 @@
+[project]
+name = "eichhorn"
+version = "0.1.0.dev0"
+description = "Plain-file, hardlinked snapshot backups of servers and folders onto local drives."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Jan Nehring" }]
+# license = "…"  # to be decided before the first release (see docs/design/spec.md, section 13)
+keywords = ["backup", "snapshot", "hardlink", "rsync", "docker", "nextcloud", "immich"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Intended Audience :: System Administrators",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Archiving :: Backup",
+]
+dependencies = [
+    "pyyaml>=6.0",
+    "platformdirs>=4.0",
+]
+
+[project.scripts]
+eichhorn = "eichhorn.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "types-pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.9,<0.10"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # we use typographic characters (·, →, …) in user-facing text
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

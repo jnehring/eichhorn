@@ -1,0 +1,10 @@
+# Back up folders on this computer.
+description: Documents and pictures on this computer
+host: local
+sources:
+  - name: documents
+    path: ~/Documents
+    exclude: [.DS_Store, Thumbs.db, desktop.ini, "~$*"]
+  - name: pictures
+    path: ~/Pictures
+    exclude: ["*.tmp", /Photos Library.photoslibrary/]

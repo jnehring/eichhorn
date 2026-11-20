@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call: # the release workflow runs the full CI first
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint and types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+
+  test:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --locked
+      - run: uv run pytest
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - name: Generated reference pages are up to date
+        run: |
+          uv run python -m eichhorn._docs cli > docs/cli.md
+          uv run python -m eichhorn._docs config > docs/configuration-reference.md
+          git diff --exit-code -- docs/ || {
+            echo "::error::docs/cli.md or docs/configuration-reference.md is outdated."
+            echo "Run: uv run python -m eichhorn._docs cli > docs/cli.md"
+            echo "     uv run python -m eichhorn._docs config > docs/configuration-reference.md"
+            exit 1
+          }
+      - name: Example configs are valid
+        run: uv run python -m eichhorn._docs check-examples examples
+      - name: Links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --no-progress --offline --include-fragments './**/*.md'
+          fail: true

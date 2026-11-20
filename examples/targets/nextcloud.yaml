@@ -1,0 +1,22 @@
+# A Nextcloud server over SSH (needs milestone 2: SSH, dumps and hooks).
+description: Nextcloud
+host: web1
+sudo: true
+sources:
+  - name: data
+    path: /srv/nextcloud/data
+    exclude: ["/appdata_*/preview/", "*/cache/", "*/uploads/", "/updater-*/"]
+  - name: compose
+    path: /srv/nextcloud
+    exclude: [/data/]
+dumps:
+  - name: nextcloud
+    type: postgres
+    container: nextcloud-db
+    database: nextcloud
+    user: nextcloud
+hooks:
+  pre:
+    - docker exec -u www-data nextcloud-app php occ maintenance:mode --on
+  post_always:
+    - docker exec -u www-data nextcloud-app php occ maintenance:mode --off
