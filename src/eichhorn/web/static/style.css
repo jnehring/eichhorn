@@ -56,6 +56,11 @@ pre.log { min-height: 240px; max-height: 70vh; white-space: pre-wrap; }
 .meter { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; margin: 6px 0; }
 .meter div { height: 100%; background: var(--accent); }
 .chart { width: 100%; height: auto; display: block; }
+.progress { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin: 12px 0; }
+.progress .bar { height: 12px; background: var(--line); border-radius: 99px; overflow: hidden; margin-top: 6px; }
+.progress .bar div { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+.progress .bar.all div { background: var(--c2); }
+.progress [data-p-detail], .progress [data-p-eta-target], .progress [data-p-eta-all] { margin-left: 8px; }
 .chart .axis, .chart .grid { stroke: var(--line); }
 .chart .tick { fill: var(--muted); font-size: 11px; }
 .chart .c1 { fill: var(--c1); } .chart .c2 { fill: var(--c2); } .chart .c3 { fill: var(--c3); }

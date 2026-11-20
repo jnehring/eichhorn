@@ -24,7 +24,8 @@ valid until you stop the server with Ctrl-C.
 
 Long actions (backups, verify, restore, sync, doctor) run in the background. Their output
 appears live in the browser; the actions are the same `eichhorn` commands you would run
-yourself.
+yourself. A backup shows two progress bars: the current target (phase, bytes, speed,
+remaining time) and all targets together.
 
 ## Security
 

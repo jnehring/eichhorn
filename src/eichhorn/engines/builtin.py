@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any
 
+from eichhorn import progress
 from eichhorn.config import Source
 from eichhorn.connections.base import Connection, Readable, SourceEntry
 from eichhorn.engines.common import (
@@ -97,6 +98,13 @@ class BuiltinEngine:
                 is_new = old is None or old.type != "file"
                 pending.append(_Pending(item, entry, is_new, long_path(dest / entry.stored_path)))
 
+        progress.current().phase(
+            "transfer",
+            source.name,
+            part=progress.current().part,
+            bytes_total=sum(pd.item.size for pd in pending),
+            files_total=len(pending),
+        )
         self._fetch(conn, source, pending, stats)
         dropped = {id(pd.entry) for pd in pending if not pd.done}
         vanished = {e.p for e in entries if id(e) in dropped}
@@ -245,6 +253,7 @@ class BuiltinEngine:
             pd.entry.size = written
         pd.entry.sha256 = digest
         pd.done = True
+        progress.current().advance(files=1)
         stats.count_fetched(pd.entry, pd.is_new, parent(pd.item.rel), transferred)
 
     def _copy_resumable(
@@ -329,6 +338,7 @@ def _pump(src: Any, out: IO[bytes], h: Any, limit: int | None = None) -> int:
         h.update(chunk)
         out.write(chunk)
         total += len(chunk)
+        progress.current().advance(len(chunk))
     return total
 
 

@@ -4,6 +4,16 @@
 <div class="row"><h1>{{ job.title }}</h1>
   <span class="badge {{ job.state }}" data-job-state>{{ job.state }}</span></div>
 <p class="muted mono">eichhorn {{ job.args|join(' ') }}</p>
+<div class="progress" data-progress hidden>
+  <div class="row"><strong data-p-target></strong><span class="muted" data-p-detail></span>
+    <span class="spacer"></span><span data-p-pct-target></span><span class="muted" data-p-eta-target></span></div>
+  <div class="bar"><div data-p-bar-target></div></div>
+  <div data-p-all-block hidden>
+    <div class="row" style="margin-top:8px"><span>All targets <span class="muted" data-p-count></span></span>
+      <span class="spacer"></span><span data-p-pct-all></span><span class="muted" data-p-eta-all></span></div>
+    <div class="bar all"><div data-p-bar-all></div></div>
+  </div>
+</div>
 <pre class="log" data-events="/jobs/{{ job.id }}/events"></pre>
 <p data-after-job hidden><a href="/">Back to the dashboard</a></p>
 {% endblock %}

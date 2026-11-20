@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import tempfile
 import time
 import zipfile
@@ -534,18 +535,31 @@ def create_app(
 
         def stream() -> Iterator[str]:
             sent = 0
+            seen_progress = -1
             while True:
                 with job.cond:
-                    while sent >= len(job.lines) and job.running:
+                    while (
+                        sent >= len(job.lines)
+                        and job.running
+                        and job.progress_version == seen_progress
+                    ):
                         job.cond.wait(timeout=15)
-                        if sent >= len(job.lines) and job.running:
+                        if (
+                            sent >= len(job.lines)
+                            and job.running
+                            and job.progress_version == seen_progress
+                        ):
                             break
                     new = job.lines[sent:]
                     done = not job.running
+                    report = job.progress if job.progress_version != seen_progress else None
+                    seen_progress = job.progress_version
                 for line in new:
                     yield "data: " + line.replace("\r", "") + "\n\n"
                 sent += len(new)
-                if not new and not done:
+                if report is not None:
+                    yield "event: progress\ndata: " + json.dumps(report) + "\n\n"
+                if not new and report is None and not done:
                     yield ": keep-alive\n\n"
                 if done and sent >= len(job.lines):
                     yield f"event: done\ndata: {job.state}\n\n"

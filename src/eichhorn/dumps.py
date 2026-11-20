@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from eichhorn import progress
 from eichhorn.connections.base import Command, Connection, StderrCollector
 from eichhorn.engines.common import CHUNK
 from eichhorn.index import Entry
@@ -144,11 +145,13 @@ def _stream(
                     raw += len(chunk)
                     raw_hash.update(chunk)
                     gz.write(chunk)
+                    progress.current().advance(len(chunk))
         else:
             while chunk := proc.stdout.read(CHUNK):
                 raw += len(chunk)
                 raw_hash.update(chunk)
                 writer.write(chunk)
+                progress.current().advance(len(chunk))
         fh.flush()
         os.fsync(fh.fileno())
     code = proc.wait()

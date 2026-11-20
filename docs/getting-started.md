@@ -57,6 +57,18 @@ eichhorn run documents --dry-run
 eichhorn run documents
 ```
 
+While it runs, two bars show the progress of the current target and of all targets
+together, with speed and remaining time:
+
+```text
+documents      ██████████░░░░░░░░  58.2 %  copying documents 1.2 GB/2.1 GB at 24.0 MB/s  ~38 s
+all 1/3        ████░░░░░░░░░░░░░░  21.0 %  ~4 min left
+```
+
+The overall estimate uses how long each target took last time, so it gets better after the
+first run. When the output goes to a file instead of a terminal, Eichhorn writes a progress
+line every 30 seconds instead.
+
 At the end you get a summary:
 
 ```text

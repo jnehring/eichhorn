@@ -397,7 +397,28 @@ def _dry_run(cfg: Config, names: list[str], repo: LocalRepository) -> int:
     return EXIT_OK
 
 
+def _plans(cfg: Config, targets: list[Any]) -> list[Any]:
+    """Estimates for the progress display, from each target's last snapshot."""
+    from eichhorn.progress import plan_from_manifest
+
+    live = repository.connected(cfg)
+    plans = []
+    for t in targets:
+        manifest = None
+        for r in live:
+            latest = r.latest(t.name)
+            if latest:
+                try:
+                    manifest = r.manifest(t.name, latest)
+                except EichhornError:
+                    manifest = None
+                break
+        plans.append(plan_from_manifest(t.name, manifest, len(t.dumps)))
+    return plans
+
+
 def cmd_run(args: argparse.Namespace) -> int:
+    from eichhorn import progress
     from eichhorn.content import Resolver
     from eichhorn.lock import RepositoryLock
     from eichhorn.replicate import copy_snapshot
@@ -412,79 +433,105 @@ def cmd_run(args: argparse.Namespace) -> int:
     failures = 0
     results: list[dict[str, Any]] = []
     interactive = sys.stdin.isatty() and not args.json
-    with KeepAwake(enabled=cfg.defaults.keep_awake and not args.allow_sleep) as awake:
-        if awake.note and not args.quiet:
-            print(o.dim(awake.note))
-        for t in targets:
-            repos = repository.choose(cfg, args.repo, t.repositories, args.all_repos, interactive)
-            repo = repos[0]
-            if args.dry_run:
-                _dry_run(cfg, [t.name], repo)
-                continue
-            if not args.quiet and not args.json:
-                more = (
-                    f" (then copied to {', '.join(r.name for r in repos[1:])})"
-                    if (len(repos) > 1)
-                    else ""
+    prog = progress.Progress(
+        "none" if args.dry_run else progress.choose_mode(args.json, args.quiet)
+    )
+    progress.use(prog)
+    if prog.mode != "none":
+        prog.start_all(_plans(cfg, targets))
+
+    def say(text: str, err: bool = False) -> None:
+        prog.clear()
+        print(text, file=sys.stderr if err else sys.stdout, flush=True)
+
+    try:
+        with KeepAwake(enabled=cfg.defaults.keep_awake and not args.allow_sleep) as awake:
+            if awake.note and not args.quiet:
+                say(o.dim(awake.note))
+            for t in targets:
+                repos = repository.choose(
+                    cfg, args.repo, t.repositories, args.all_repos, interactive
                 )
-                print(o.dim(f"backing up {t.name} → {repo.name}{more} …"), flush=True)
-            try:
-                res = run_target(
-                    cfg,
-                    t,
-                    repo,
-                    RunOptions(
-                        label=args.label, pin=args.pin, restart=args.restart, command="eichhorn run"
-                    ),
-                )
-            except KeyboardInterrupt:
-                print(o.yellow(f"\ninterrupted: {t.name} stays unfinished and resumes next time"))
-                return 130
-            except EichhornError as exc:
-                failures += 1
-                print(o.red(f"{t.name}: {exc}"), file=sys.stderr)
-                results.append({"target": t.name, "ok": False, "error": str(exc)})
-                continue
-            item: dict[str, Any] = {
-                "target": t.name,
-                "ok": res.ok,
-                "manifest": res.manifest,
-                "copies": [],
-            }
-            results.append(item)
-            if not res.ok:
-                failures += 1
-            if res.manifest and not args.json:
-                print(format_summary(res.manifest))
-            # further repositories get a local copy of the new snapshot (spec 5.6)
-            if res.manifest and len(repos) > 1:
-                resolver = Resolver(repo, t.name)
-                for other in repos[1:]:
-                    try:
-                        with RepositoryLock(other.root, f"eichhorn run {t.name} (copy)"):
-                            cr = copy_snapshot(resolver, res.manifest["snapshot"], other)
-                    except EichhornError as exc:
-                        failures += 1
-                        print(o.red(f"  copy to {other.name} failed: {exc}"), file=sys.stderr)
-                        item["copies"].append({"repository": other.name, "error": str(exc)})
-                        continue
-                    item["copies"].append(cr.as_dict())
-                    if not args.json and not args.quiet:
-                        print(
-                            f"  {'copied to'.ljust(10)} {other.name}: {cr.copied} file(s), "
-                            f"{o.size(cr.copied_bytes)} written, {cr.linked + cr.skipped_sparse}"
-                            f" unchanged ({o.duration(cr.duration_s)})"
-                        )
-            if res.manifest and not args.no_prune and any(t.retention.values()):
-                for r in repos:
-                    pr = _prune_one(r, t.name, t.retention, dry_run=False)
-                    if pr.delete and not args.json and not args.quiet:
-                        print(
-                            o.dim(
-                                f"  pruned {len(pr.delete)} old snapshot(s) in {r.name}: "
-                                f"{', '.join(pr.delete)}"
+                repo = repos[0]
+                if args.dry_run:
+                    _dry_run(cfg, [t.name], repo)
+                    continue
+                if not args.quiet and not args.json:
+                    more = (
+                        f" (then copied to {', '.join(r.name for r in repos[1:])})"
+                        if len(repos) > 1
+                        else ""
+                    )
+                    say(o.dim(f"backing up {t.name} → {repo.name}{more} …"))
+                prog.start_target(t.name, len(t.sources), len(t.dumps))
+                try:
+                    res = run_target(
+                        cfg,
+                        t,
+                        repo,
+                        RunOptions(
+                            label=args.label,
+                            pin=args.pin,
+                            restart=args.restart,
+                            command="eichhorn run",
+                        ),
+                    )
+                except KeyboardInterrupt:
+                    say(o.yellow(f"\ninterrupted: {t.name} stays unfinished and resumes next time"))
+                    return 130
+                except EichhornError as exc:
+                    failures += 1
+                    say(o.red(f"{t.name}: {exc}"), err=True)
+                    results.append({"target": t.name, "ok": False, "error": str(exc)})
+                    prog.end_target()
+                    continue
+                item: dict[str, Any] = {
+                    "target": t.name,
+                    "ok": res.ok,
+                    "manifest": res.manifest,
+                    "copies": [],
+                }
+                results.append(item)
+                if not res.ok:
+                    failures += 1
+                if res.manifest and not args.json:
+                    say(format_summary(res.manifest))
+                # further repositories get a local copy of the new snapshot (spec 5.6)
+                if res.manifest and len(repos) > 1:
+                    resolver = Resolver(repo, t.name)
+                    for other in repos[1:]:
+                        prog.phase("copy", other.name)
+                        try:
+                            with RepositoryLock(other.root, f"eichhorn run {t.name} (copy)"):
+                                cr = copy_snapshot(resolver, res.manifest["snapshot"], other)
+                        except EichhornError as exc:
+                            failures += 1
+                            say(o.red(f"  copy to {other.name} failed: {exc}"), err=True)
+                            item["copies"].append({"repository": other.name, "error": str(exc)})
+                            continue
+                        item["copies"].append(cr.as_dict())
+                        if not args.json and not args.quiet:
+                            say(
+                                f"  {'copied to'.ljust(10)} {other.name}: {cr.copied} file(s), "
+                                f"{o.size(cr.copied_bytes)} written, "
+                                f"{cr.linked + cr.skipped_sparse} unchanged "
+                                f"({o.duration(cr.duration_s)})"
                             )
-                        )
+                if res.manifest and not args.no_prune and any(t.retention.values()):
+                    prog.phase("prune")
+                    for r in repos:
+                        pr = _prune_one(r, t.name, t.retention, dry_run=False)
+                        if pr.delete and not args.json and not args.quiet:
+                            say(
+                                o.dim(
+                                    f"  pruned {len(pr.delete)} old snapshot(s) in {r.name}: "
+                                    f"{', '.join(pr.delete)}"
+                                )
+                            )
+                prog.end_target()
+    finally:
+        prog.finish()
+        progress.use(progress.NULL)
     if args.json:
         _print_json(results)
     return EXIT_FAILED if failures else EXIT_OK

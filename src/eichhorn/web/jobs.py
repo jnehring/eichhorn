@@ -6,6 +6,7 @@ and isolates long runs from the web server.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -14,6 +15,9 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+
+from eichhorn.progress import PREFIX
 
 
 @dataclass
@@ -26,6 +30,8 @@ class Job:
     finished: float | None = None
     exit_code: int | None = None
     lines: list[str] = field(default_factory=list)
+    progress: dict[str, Any] | None = None  # the latest @@progress report
+    progress_version: int = 0
     cond: threading.Condition = field(default_factory=threading.Condition)
 
     @property
@@ -57,7 +63,13 @@ class JobManager:
         return job
 
     def _run(self, job: Job) -> None:
-        env = {**os.environ, "NO_COLOR": "1", "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"}
+        env = {
+            **os.environ,
+            "NO_COLOR": "1",
+            "PYTHONUNBUFFERED": "1",
+            "PYTHONIOENCODING": "utf-8",
+            "EICHHORN_PROGRESS": "json",
+        }
         try:
             proc = subprocess.Popen(
                 job.argv,
@@ -76,12 +88,25 @@ class JobManager:
             return
         assert proc.stdout is not None
         for line in proc.stdout:
-            self._append(job, line.rstrip("\n"))
+            if line.startswith(PREFIX):
+                self._progress(job, line[len(PREFIX) :])
+            else:
+                self._append(job, line.rstrip("\n"))
         self._finish(job, proc.wait())
 
     def _append(self, job: Job, line: str) -> None:
         with job.cond:
             job.lines.append(line)
+            job.cond.notify_all()
+
+    def _progress(self, job: Job, text: str) -> None:
+        try:
+            data = json.loads(text)
+        except ValueError:
+            return
+        with job.cond:
+            job.progress = data
+            job.progress_version += 1
             job.cond.notify_all()
 
     def _finish(self, job: Job, code: int) -> None:

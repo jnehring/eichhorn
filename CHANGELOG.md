@@ -9,6 +9,10 @@ is always marked **Storage format**.
 
 ### Added
 
+- Progress bars for `eichhorn run`: the current target (phase, bytes, speed, remaining time)
+  and all targets together, estimated from the last run's durations. In a terminal they
+  update in place; otherwise a line every 30 seconds. The web interface shows both bars live
+  on the job page.
 - Targets can be written directly in `eichhorn.yaml` under `targets:` (next to or instead
   of `targets/*.yaml`); YAML merge keys (`<<: *anchor`) and top-level `x-…` keys help to
   share values such as the host.

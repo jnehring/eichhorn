@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from eichhorn import __version__, cache, prune
+from eichhorn import __version__, cache, progress, prune
 from eichhorn.config import Config, Target
 from eichhorn.connections import Connection, connect
 from eichhorn.content import Resolver
@@ -166,6 +166,9 @@ def run_target(cfg: Config, target: Target, repo: LocalRepository, opts: RunOpti
 
         # ---- pre hooks ---------------------------------------------------
         t = time.monotonic()
+        prog = progress.current()
+        if target.hooks.get("pre"):
+            prog.phase("hooks", "pre")
         pre = run_phase(conn, "pre", target.hooks.get("pre", []), target.sudo, stop_on_error=True)
         hooks += pre
         timings["hooks_pre"] = time.monotonic() - t
@@ -213,7 +216,8 @@ def run_target(cfg: Config, target: Target, repo: LocalRepository, opts: RunOpti
             if target.dumps:
                 dumps_dir.mkdir()
                 entries.append(Entry("dumps", "dir"))
-            for d in target.dumps:
+            for i, d in enumerate(target.dumps):
+                prog.phase("dump", d["name"], part=i, bytes_total=progress.dump_estimate(d["name"]))
                 base = _delta_base(repo, target.name, latest, prev, d)
                 res = run_dump(conn, d, dumps_dir, target.sudo, snapshot, caps.hardlinks, base)
                 dump_results.append(res)
@@ -227,7 +231,8 @@ def run_target(cfg: Config, target: Target, repo: LocalRepository, opts: RunOpti
             # ---- transfer ------------------------------------------------
             t = time.monotonic()
             sources_manifest = []
-            for s in target.sources:
+            for i, s in enumerate(target.sources):
+                prog.phase("listing", s.name, part=i)
                 src_entries, stats = engine.transfer(conn, s, incomplete, prev)
                 entries += src_entries
                 sources_manifest.append(stats.manifest())
@@ -257,6 +262,7 @@ def run_target(cfg: Config, target: Target, repo: LocalRepository, opts: RunOpti
         timings["hooks_post"] = time.monotonic() - t
 
         # ---- checksums, index, manifest ----------------------------------
+        prog.phase("finish")
         t = time.monotonic()
         n_checksums = 0
         if cfg.defaults.checksums:

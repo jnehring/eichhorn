@@ -12,7 +12,9 @@ import re
 import subprocess
 import time
 from pathlib import Path
+from typing import Any
 
+from eichhorn import progress
 from eichhorn.config import Source
 from eichhorn.connections.base import Connection, StderrCollector
 from eichhorn.connections.ssh import SshConnection
@@ -47,6 +49,7 @@ class RsyncEngine:
             "--partial",
             "--protect-args",
             "--stats",
+            "--info=progress2",
         ]
         argv += [f"--exclude={p}" for p in source.exclude]
         if prev.dir is not None and (prev.dir / "files" / source.name).is_dir():
@@ -80,10 +83,26 @@ class RsyncEngine:
         target_dir = dest / prefix
         target_dir.mkdir(parents=True, exist_ok=True)
         argv = self.command(conn, source, target_dir, prev)
+        to_copy = files_to_copy = 0
+        for e in listing.entries:
+            old = prev.index.get(f"{prefix}/{e.rel}")
+            if e.type == "file" and (
+                old is None or (old.size, old.mtime_ns) != (e.size, e.mtime_ns)
+            ):
+                to_copy += e.size
+                files_to_copy += 1
+        prog = progress.current()
+        prog.phase(
+            "transfer",
+            source.name,
+            part=prog.part,
+            bytes_total=to_copy,
+            files_total=files_to_copy,
+        )
         proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         errors = StderrCollector(proc.stderr)
         assert proc.stdout is not None
-        out = proc.stdout.read().decode("utf-8", "replace")
+        out = _read_with_progress(proc.stdout, prog)
         code = proc.wait()
         if code == 24:
             stats.warnings.append("some files vanished during the transfer (rsync exit 24)")
@@ -141,3 +160,21 @@ class RsyncEngine:
         stats.count_deleted(prev.index, prefix, seen)
         stats.duration_s = time.monotonic() - started
         return entries, stats
+
+
+PROGRESS_RE = re.compile(rb"^\s*([\d,.]+)\s+\d+%")
+
+
+def _read_with_progress(stream: Any, p: progress.Progress) -> str:
+    """Read rsync's output; feed --info=progress2 lines (ended by \\r) to the progress."""
+    text = bytearray()
+    buf = b""
+    while chunk := stream.read1(65536) if hasattr(stream, "read1") else stream.read(65536):
+        text += chunk
+        buf += chunk
+        *lines, buf = re.split(rb"[\r\n]", buf)
+        for line in lines:
+            m = PROGRESS_RE.match(line)
+            if m:
+                p.set_done(int(re.sub(rb"[,.]", b"", m.group(1))))
+    return text.decode("utf-8", "replace")
