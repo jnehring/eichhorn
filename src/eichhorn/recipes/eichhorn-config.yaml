@@ -1,0 +1,11 @@
+description: Eichhorn's own configuration folder (eichhorn.yaml, repositories.yaml, targets, own recipes), from this computer.
+params: {}
+target:
+  description: Eichhorn configuration
+  host: local
+  sources:
+    - name: config
+      path: ${eichhorn_config}
+      exclude:
+        - /state/
+        - .DS_Store

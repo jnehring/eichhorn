@@ -9,6 +9,7 @@ A recipe fills in a target for a known app from a few parameters: its folders, d
 | `affine` | AFFiNE self-hosted (docker compose). Uploaded blobs, config and the Postgres database. | [affine.md](affine.md) |
 | `caddy` | Caddy reverse proxy (docker compose). Caddyfile and compose file; optionally the certificates. | [caddy.md](caddy.md) |
 | `compose-postgres` | A self-written app in docker compose with one Postgres database and optional data folders. | [compose-postgres.md](compose-postgres.md) |
+| `eichhorn-config` | Eichhorn's own configuration folder (eichhorn.yaml, repositories.yaml, targets, own recipes), from this computer. | [eichhorn-config.md](eichhorn-config.md) |
 | `immich` | Immich photo library (docker compose). Originals, uploads and profiles plus a pg_dumpall of the database. | [immich.md](immich.md) |
 | `nextcloud` | Nextcloud (docker compose, official image). User files, config and the database, in maintenance mode. | [nextcloud.md](nextcloud.md) |
 | `static-site` | A static website (a folder of files). | [static-site.md](static-site.md) |
@@ -47,6 +48,13 @@ A self-written app in docker compose with one Postgres database and optional dat
 | `db_user` |  | `postgres` | Database user |
 | `db_password_env` |  |  | Environment variable in the container that holds the password, if needed |
 | `data_dirs` |  |  | Further folders to back up (uploads, …); each becomes data-1, data-2, … |
+
+## `eichhorn-config`
+
+Eichhorn's own configuration folder (eichhorn.yaml, repositories.yaml, targets, own recipes), from this computer.
+
+| Parameter | Required | Default | Meaning |
+|---|---|---|---|
 
 ## `immich`
 

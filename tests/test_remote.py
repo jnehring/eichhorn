@@ -431,3 +431,18 @@ def test_own_source_keeps_nested_exclusion() -> None:
     own = {"sources": [{"name": "compose", "path": "/srv/immich", "exclude": ["/postgres/"]}]}
     compose = next(s for s in recipes.merge(immich, own)["sources"] if s["name"] == "compose")
     assert compose["exclude"] == ["/postgres/", "/library/"]
+
+
+def test_sizes_include_dumps() -> None:
+    """`eichhorn snapshots` and the summary count database dumps (they can be most of it)."""
+    from eichhorn.summary import totals
+
+    m = {
+        "sources": [{"files": 2, "bytes": 100, "stored_bytes": 100, "changes": {"new": 2}}],
+        "dumps": [
+            {"name": "db", "status": "ok", "bytes": 5000},
+            {"name": "bad", "status": "failed", "bytes": 0},
+        ],
+    }
+    t = totals(m)
+    assert (t["files"], t["bytes"], t["stored_bytes"]) == (2, 5100, 5100)

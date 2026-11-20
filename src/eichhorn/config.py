@@ -56,7 +56,8 @@ class Target:
     hooks: dict[str, list[str]] = field(default_factory=dict)
     recipe: str | None = None
     shell: str | None = None
-    raw: dict[str, Any] = field(default_factory=dict)  # the file as written
+    inline: bool = False  # written in eichhorn.yaml's targets: section
+    raw: dict[str, Any] = field(default_factory=dict)  # the target as written
     expanded: dict[str, Any] = field(default_factory=dict)  # with the recipe filled in
 
     @property
@@ -127,7 +128,8 @@ def _apply_recipe(doc: Located, cdir: Path) -> tuple[dict[str, Any], list[str]]:
     problems = [f"{doc.where(('with',))}: {p}" for p in recipes.check_params(recipe, given)]
     if problems:
         return data, problems
-    merged = recipes.merge(recipes.expand(recipe, given), data)
+    variables = {"eichhorn_config": str(cdir.absolute())}
+    merged = recipes.merge(recipes.expand(recipe, given, variables), data)
     check = load_text(dump(merged), doc.file)
     problems = [
         f"{where}: after filling in recipe {name!r}: {p.split(': ', 1)[-1]}"
@@ -161,7 +163,7 @@ def _parse_target(
         if d.get("password_env") and not ENV_NAME_RE.match(d["password_env"]):
             problems.append(f"{where}: password_env must be a variable name such as DB_PASSWORD")
     if not sources and not data.get("dumps"):
-        problems.append(f"{doc.file}: a target needs at least one source or dump")
+        problems.append(f"{doc.where(())}: target {name!r} needs at least one source or dump")
     target = Target(
         name=name,
         file=doc.file,
@@ -189,7 +191,7 @@ def load_config(directory: Path | None = None, strict: bool = True) -> tuple[Con
     gdoc = _load_optional(cdir / GLOBAL_FILE)
     rdoc = _load_optional(cdir / REPOS_FILE)
     if gdoc:
-        problems += schema.validate(gdoc, schema.GLOBAL_SCHEMA)
+        problems += schema.validate(gdoc, schema.GLOBAL_SCHEMA, extensions=True)
     if rdoc:
         problems += schema.validate(rdoc, schema.GLOBAL_SCHEMA)
     if problems:
@@ -209,6 +211,15 @@ def load_config(directory: Path | None = None, strict: bool = True) -> tuple[Con
         problems.append(f"two repositories are named {n!r}")
 
     targets: dict[str, Target] = {}
+    docs: list[tuple[str, Located, bool]] = []
+    inline = ((gdoc.data or {}).get("targets") or {}) if gdoc else {}
+    for name in inline:
+        where = gdoc.where(("targets", str(name))) if gdoc else GLOBAL_FILE
+        if not isinstance(name, str) or not schema.NAME_RE.match(name):
+            problems.append(f"{where}: target names may only contain a-z, 0-9, '.', '_', '-'")
+            continue
+        assert gdoc is not None
+        docs.append((name, gdoc.sub(("targets", name)), True))
     tdir = cdir / TARGETS_DIR
     files = sorted(tdir.glob("*.yaml")) + sorted(tdir.glob("*.yml")) if tdir.is_dir() else []
     for f in files:
@@ -216,10 +227,19 @@ def load_config(directory: Path | None = None, strict: bool = True) -> tuple[Con
         if not schema.NAME_RE.match(name):
             problems.append(f"{f}: target file names may only contain a-z, 0-9, '.', '_', '-'")
             continue
+        if name in inline:
+            problems.append(
+                f"{f}: target {name!r} is also defined in {GLOBAL_FILE} (targets:); "
+                "keep only one of them"
+            )
+            continue
         try:
-            doc = load_file(f)
+            docs.append((name, load_file(f), False))
         except ConfigError as exc:
             problems.append(str(exc))
+    for name, doc, is_inline in docs:
+        if not isinstance(doc.data, dict):
+            problems.append(f"{doc.where(())}: target {name!r} must be a mapping")
             continue
         tproblems = schema.validate(doc, schema.TARGET_SCHEMA)
         if tproblems:
@@ -230,6 +250,7 @@ def load_config(directory: Path | None = None, strict: bool = True) -> tuple[Con
             problems += more
             continue
         target, more = _parse_target(name, doc, defaults, data)
+        target.inline = is_inline
         problems += more
         for rname in target.repositories or []:
             if rname not in names:

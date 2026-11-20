@@ -15,11 +15,58 @@ Use another folder with `--config DIR` or the environment variable `EICHHORN_CON
 
 ```text
 eichhorn/
-  eichhorn.yaml          global settings (optional)
+  eichhorn.yaml          global settings and (if you like) all targets
   repositories.yaml      written by `eichhorn repo init`
   targets/
-    documents.yaml       one file per target; the file name is the target name
+    documents.yaml       or: one file per target; the file name is the target name
 ```
+
+You can write all targets into `eichhorn.yaml`, or one file per target into `targets/`, or
+mix both. A name may be used only once.
+
+## Everything in one file
+
+```yaml
+# eichhorn.yaml
+defaults:
+  retention: {keep_last: 6, keep_monthly: 12}
+
+# x-… keys are ignored by Eichhorn: a place for YAML anchors
+x-server: &server
+  host: web1
+  sudo: true
+
+targets:
+  website:
+    <<: *server                      # host and sudo from the anchor
+    recipe: static-site
+    with: {path: /srv/sites/example.org}
+
+  nextcloud:
+    <<: *server
+    recipe: nextcloud
+    with:
+      compose_dir: /srv/nextcloud
+      data_dir: /srv/nextcloud/html/data
+      app_container: nextcloud-app
+      db_container: nextcloud-db
+
+  eichhorn:                          # Eichhorn's own configuration
+    recipe: eichhorn-config
+```
+
+`<<: *server` copies the keys of the anchor; keys written in the target win. Each target
+has exactly the keys of a target file, described below.
+
+## Backing up the configuration itself
+
+The recipe `eichhorn-config` backs up this folder (without the cache in `state/`), from the
+computer Eichhorn runs on. Add it as a target as shown above.
+
+To get the configuration back on a new computer, install Eichhorn, plug in the drive and
+copy the folder `targets/eichhorn/snapshots/<newest>/files/config/` from the drive into the
+config folder listed at the top of this page. Then `eichhorn repo list` finds the drive
+again.
 
 ## `eichhorn.yaml`
 

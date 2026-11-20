@@ -104,8 +104,7 @@ def target_series(repo: LocalRepository, target: str) -> list[dict[str, Any]]:
                 "status": m.get("status"),
                 "files": t["files"],
                 "logical_bytes": t["bytes"],
-                "stored_bytes": t["stored_bytes"]
-                + sum(d.get("bytes", 0) for d in m.get("dumps", [])),
+                "stored_bytes": t["stored_bytes"],
                 "transferred_bytes": sum(
                     s.get("transferred_bytes", 0) for s in m.get("sources", [])
                 ),

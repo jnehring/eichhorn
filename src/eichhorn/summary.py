@@ -49,7 +49,7 @@ def format_summary(m: dict[str, Any]) -> str:
     if failed_hooks:
         lines.append(o.red(f"  {'hooks'.ljust(width)} {len(failed_hooks)} failed"))
     repo = m.get("repository", {})
-    stored = sum(s.get("stored_bytes", 0) for s in m.get("sources", []))
+    stored = totals(m)["stored_bytes"]
     lines.append(
         f"  {'repository'.ljust(width)} +{o.size(stored)} used, "
         f"{o.size(repo.get('free_after', 0))} free"
@@ -69,4 +69,9 @@ def totals(m: dict[str, Any]) -> dict[str, int]:
         out["stored_bytes"] += s.get("stored_bytes", 0)
         for k in ("new", "changed", "deleted"):
             out[k] += s.get("changes", {}).get(k, 0)
+    # database dumps count too: their size on the drive (a patch for delta dumps)
+    for d in m.get("dumps", []):
+        if d.get("status") == "ok":
+            out["bytes"] += d.get("bytes", 0)
+            out["stored_bytes"] += d.get("bytes", 0)
     return out

@@ -9,6 +9,12 @@ is always marked **Storage format**.
 
 ### Added
 
+- Targets can be written directly in `eichhorn.yaml` under `targets:` (next to or instead
+  of `targets/*.yaml`); YAML merge keys (`<<: *anchor`) and top-level `x-…` keys help to
+  share values such as the host.
+- Recipe `eichhorn-config`: backs up Eichhorn's own configuration folder.
+- Snapshot sizes in `eichhorn snapshots`, the run summary and statistics include database
+  dumps.
 - MySQL/MariaDB dumps use `mariadb-dump` where it exists (MariaDB 11 and newer no longer
   ship `mysqldump`) and fall back to `mysqldump`.
 - Recipes: a source of the target file that replaces a recipe's source keeps the automatic

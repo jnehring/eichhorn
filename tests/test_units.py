@@ -118,3 +118,51 @@ def test_output_is_utf8_even_on_a_legacy_code_page(
     print("docs → Backup-A …")
     sys.stdout.flush()
     assert "docs → Backup-A …" in raw.getvalue().decode("utf-8")
+
+
+def test_targets_in_eichhorn_yaml_with_anchors(tmp_path: Path) -> None:
+    """Targets may live in eichhorn.yaml; YAML anchors and x- keys help to share values."""
+    cdir = tmp_path / "cfg"
+    cdir.mkdir()
+    (cdir / "eichhorn.yaml").write_text(
+        """x-server: &server
+  host: web1
+  sudo: true
+
+targets:
+  site:
+    <<: *server
+    recipe: static-site
+    with: {path: /srv/site}
+  other:
+    <<: *server
+    sudo: false
+    sources:
+      - {name: a, path: /srv/a}
+  me:
+    recipe: eichhorn-config
+"""
+    )
+    cfg, problems = load_config(cdir, strict=False)
+    assert problems == []
+    assert cfg.targets["site"].host == "web1" and cfg.targets["site"].sudo is True
+    assert cfg.targets["other"].sudo is False  # written keys win over merged ones
+    assert cfg.targets["site"].inline
+    me = cfg.targets["me"]
+    assert me.host == "local"
+    assert me.sources[0].path == str(cdir.absolute())
+    assert "/state/" in me.sources[0].exclude
+
+
+def test_inline_target_errors_have_lines_and_conflicts(tmp_path: Path) -> None:
+    cdir = tmp_path / "cfg"
+    (cdir / "targets").mkdir(parents=True)
+    (cdir / "eichhorn.yaml").write_text(
+        "targets:\n  a:\n    sources:\n      - {name: x, pth: /x}\n  b:\n    sources: []\n"
+        "    dumps: [{name: d, type: command, run: 'true'}]\n"
+    )
+    (cdir / "targets" / "b.yaml").write_text("sources:\n  - {name: y, path: /y}\n")
+    _, problems = load_config(cdir, strict=False)
+    text = "\n".join(problems)
+    assert "eichhorn.yaml:4: sources.0.pth: unknown key" in text
+    assert "target 'b' is also defined in eichhorn.yaml" in text

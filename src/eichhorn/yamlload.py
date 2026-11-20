@@ -20,6 +20,15 @@ class Located:
         self.data = data
         self.lines = lines
 
+    def sub(self, path: KeyPath) -> Located:
+        """The part of the document at `path`, with its own line numbers."""
+        data = self.data
+        for key in path:
+            data = data[key]
+        n = len(path)
+        lines = {k[n:]: v for k, v in self.lines.items() if k[:n] == path}
+        return Located(self.file, data, lines)
+
     def where(self, path: KeyPath) -> str:
         """`file:line` for a key path, falling back to the nearest parent."""
         p = path
@@ -33,18 +42,33 @@ def _build(node: yaml.Node, path: KeyPath, lines: dict[KeyPath, int], loader: An
     lines[path] = node.start_mark.line + 1
     if isinstance(node, yaml.MappingNode):
         out: dict[Any, Any] = {}
+        merged: list[yaml.Node] = []
         for key_node, value_node in node.value:
-            key = loader.construct_object(key_node, deep=True)
-            if key == "<<":
-                raise ConfigError(
-                    f"{loader.name}:{key_node.start_mark.line + 1}: YAML merge keys (<<) "
-                    "are not supported"
+            is_merge = key_node.tag == "tag:yaml.org,2002:merge"
+            key = "<<" if is_merge else loader.construct_object(key_node, deep=True)
+            if key == "<<":  # YAML merge key: `<<: *anchor` or `<<: [*a, *b]`
+                items = (
+                    value_node.value if isinstance(value_node, yaml.SequenceNode) else [value_node]
                 )
+                for item in items:
+                    if not isinstance(item, yaml.MappingNode):
+                        raise ConfigError(
+                            f"{loader.name}:{key_node.start_mark.line + 1}: `<<` needs a "
+                            "mapping (an anchor such as *server)"
+                        )
+                    merged.append(item)
+                continue
             if key in out:
                 raise ConfigError(
                     f"{loader.name}:{key_node.start_mark.line + 1}: duplicate key {key!r}"
                 )
             out[key] = _build(value_node, (*path, str(key)), lines, loader)
+        for item in merged:  # keys written here win over merged ones
+            for key, value in _build(item, path, {}, loader).items():
+                if key not in out:
+                    out[key] = value
+                    lines.setdefault((*path, str(key)), item.start_mark.line + 1)
+        lines[path] = node.start_mark.line + 1
         return out
     if isinstance(node, yaml.SequenceNode):
         return [_build(item, (*path, i), lines, loader) for i, item in enumerate(node.value)]

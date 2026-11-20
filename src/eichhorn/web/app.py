@@ -440,8 +440,8 @@ def create_app(
             items.append(
                 {
                     "name": name,
-                    "file": t.file,
-                    "text": t.file.read_text(encoding="utf-8"),
+                    "file": f"{t.file} (targets: {name})" if t.inline else t.file,
+                    "text": dump(t.raw) if t.inline else t.file.read_text(encoding="utf-8"),
                     "expanded": dump({k: v for k, v in t.expanded.items() if v is not None})
                     if t.recipe
                     else None,

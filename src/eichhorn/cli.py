@@ -264,8 +264,9 @@ def cmd_target_show(args: argparse.Namespace) -> int:
         clean = {k: v for k, v in t.expanded.items() if v is not None}
         print(dump(clean).rstrip())
         return EXIT_OK
-    print(o.dim(f"# {t.file}"))
-    print(t.file.read_text(encoding="utf-8").rstrip())
+    print(o.dim(f"# {t.file}" + (f", targets: {t.name}" if t.inline else "")))
+    text = dump(t.raw) if t.inline else t.file.read_text(encoding="utf-8")
+    print(text.rstrip())
     return EXIT_OK
 
 

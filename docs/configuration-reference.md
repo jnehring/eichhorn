@@ -8,6 +8,7 @@ All keys of the configuration files, generated from the schema that Eichhorn use
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
+| `targets` | any-map |  | Targets written directly in this file, as `name: {…}` – instead of, or next to, files in `targets/`. Each value has the keys of a target file (below). |
 | `defaults` | map |  | Defaults for all targets. |
 | `defaults.retention` | map |  | Retention rules (pruning). *(Implemented in milestone 3.)* |
 | `defaults.retention.keep_last` | int |  | Keep the N newest snapshots. |

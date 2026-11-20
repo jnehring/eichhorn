@@ -44,6 +44,12 @@ ENGINES = ("auto", "builtin", "rsync")
 
 GLOBAL_SCHEMA: Schema = (
     Field(
+        "targets",
+        "any-map",
+        "Targets written directly in this file, as `name: {…}` – instead of, or next to, "
+        "files in `targets/`. Each value has the keys of a target file (below).",
+    ),
+    Field(
         "defaults",
         "map",
         "Defaults for all targets.",
@@ -223,7 +229,7 @@ def _hint(value: Any) -> str:
     return ""
 
 
-def validate(doc: Located, schema: Schema) -> list[str]:
+def validate(doc: Located, schema: Schema, extensions: bool = False) -> list[str]:
     """Return a list of problems, each prefixed with `file:line`."""
     problems: list[str] = []
 
@@ -237,6 +243,8 @@ def validate(doc: Located, schema: Schema) -> list[str]:
             return
         known = {f.name: f for f in fields}
         for key in value:
+            if extensions and not path and str(key).startswith("x-"):
+                continue  # x-… keys at the top: free for YAML anchors, like docker compose
             if key not in known:
                 close = difflib.get_close_matches(str(key), list(known), n=1)
                 tip = f" (did you mean {close[0]!r}?)" if close else ""

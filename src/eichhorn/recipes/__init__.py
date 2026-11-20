@@ -164,8 +164,13 @@ def _exclude_nested(sources: list[dict[str, Any]]) -> None:
                     excludes.append(pattern)
 
 
-def expand(recipe: Recipe, given: dict[str, Any]) -> dict[str, Any]:
-    params = {p.name: p.default for p in recipe.params.values()}
+def expand(
+    recipe: Recipe, given: dict[str, Any], variables: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Fill in the template. `variables` are provided by Eichhorn itself, such as
+    ${eichhorn_config} (the configuration folder)."""
+    params = dict(variables or {})
+    params.update({p.name: p.default for p in recipe.params.values()})
     params.update(given)
     data: dict[str, Any] = _subst(recipe.template, params)
     _exclude_nested(data.get("sources") or [])
