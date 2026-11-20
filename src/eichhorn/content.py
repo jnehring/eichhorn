@@ -17,14 +17,16 @@ from eichhorn.paths import long_path
 from eichhorn.stores.localfs import LocalRepository
 
 
-def part_paths(snapshot_dir: Path, entry: Entry) -> list[Path]:
-    base = snapshot_dir / entry.stored_path
+def part_names(entry: Entry) -> list[str]:
+    """The names (relative to the snapshot folder, with /) that hold an entry's content."""
     if entry.parts:
-        return [
-            long_path(base.with_name(f"{base.name}{PART_SUFFIX}{i:03d}"))
-            for i in range(1, entry.parts + 1)
-        ]
-    return [long_path(base)]
+        return [f"{entry.stored_path}{PART_SUFFIX}{i:03d}" for i in range(1, entry.parts + 1)]
+    return [entry.stored_path]
+
+
+def part_paths(snapshot_dir: Path, entry: Entry) -> list[Path]:
+    """Full paths of part_names (with the Windows long-path prefix where needed)."""
+    return [long_path(snapshot_dir / name) for name in part_names(entry)]
 
 
 class ContentMissing(EichhornError):

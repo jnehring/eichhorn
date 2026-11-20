@@ -21,7 +21,7 @@ dumps:
 | Type | Command (inside the container if `container` is set) |
 |---|---|
 | `postgres` | `pg_dump -U <user> --clean --if-exists <database>`, or `pg_dumpall` for `"*"` |
-| `mysql` | `mysqldump -u <user> --single-transaction --routines --triggers --databases <database>` (`--all-databases` without a database) |
+| `mysql` | `mariadb-dump` (MariaDB) or `mysqldump` (MySQL), whichever exists, with `-u <user> --single-transaction --routines --triggers --databases <database>` (`--all-databases` without a database) |
 | `command` | any command whose output is the dump: `run: "redis-cli --rdb -"`, with `ext:` for the file extension |
 
 The result is `dumps/<name>.sql.gz` in the snapshot. A dump that fails or is empty marks
@@ -37,7 +37,7 @@ the host:
     password_env: MYSQL_PASSWORD
 ```
 
-Eichhorn then runs `MYSQL_PWD="$MYSQL_PASSWORD" mysqldump …`. The password never appears in
+Eichhorn then sets `MYSQL_PWD="$MYSQL_PASSWORD"` before running the dump tool. The password never appears in
 Eichhorn's config, logs or on the command line.
 
 ### Restoring a dump

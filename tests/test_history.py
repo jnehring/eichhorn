@@ -312,3 +312,13 @@ def test_resolver_prefix_names(tmp_path: Path, cli: Cli) -> None:
     name = r.snapshots[0]
     assert r.resolve_name(name[:13]) == name
     assert r.resolve_name("latest") == name
+
+
+def test_verify_with_absolute_long_paths(
+    tmp_path: Path, cli: Cli, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On Windows, long_path() turns paths into absolute \\\\?\\ paths (regression test)."""
+    make(tmp_path, cli)
+    assert cli("run", "docs") == 0
+    monkeypatch.setattr("eichhorn.content.long_path", lambda p: Path(os.path.abspath(p)))
+    assert cli("verify", "docs") == 0

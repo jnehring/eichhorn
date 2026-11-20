@@ -72,12 +72,14 @@ def _db_check_command(dump: dict[str, Any], sudo: bool) -> Command | None:
         argv += ["-d", "postgres" if db in (None, "*") else db]
         prefix = f'PGPASSWORD="${pw}" ' if pw else ""
     elif kind == "mysql":
-        argv = ["mysql", "-N", "-e", "select 1"]
+        from eichhorn.dumps import _mysql_tool
+
+        args = ["-N", "-e", "select 1"]
         if user:
-            argv += ["-u", user]
+            args += ["-u", user]
         if db and db != "*":
-            argv.append(db)
-        prefix = f'MYSQL_PWD="${pw}" ' if pw else ""
+            args.append(db)
+        return _mysql_tool(dump, "mariadb", "mysql", args, sudo)
     else:
         return None
     if dump.get("container"):

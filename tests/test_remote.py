@@ -6,6 +6,7 @@ import gzip
 import json
 import os
 import shlex
+import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -297,7 +298,29 @@ def test_dump_commands() -> None:
     )
     assert my.sudo
     assert my.argv is not None and my.argv[:4] == ["docker", "exec", "db", "sh"]
-    assert my.argv[5].startswith('MYSQL_PWD="$MYSQL_PASSWORD" mysqldump -u nc')
+    script = my.argv[5]
+    assert script.startswith('MYSQL_PWD="$MYSQL_PASSWORD"; export MYSQL_PWD;')
+    assert "command -v mariadb-dump || command -v mysqldump" in script
+    assert script.endswith("-u nc --single-transaction --routines --triggers --databases nc")
+
+
+def test_mysql_dump_falls_back_to_the_available_tool(tmp_path: Path) -> None:
+    """MariaDB 11+ has only mariadb-dump; MySQL has only mysqldump."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake = bin_dir / "mysqldump"
+    fake.write_text('#!/bin/sh\necho "dump by mysqldump with $MYSQL_PWD: $*"\n')
+    fake.chmod(0o755)
+    cmd = build_command(
+        {"name": "n", "type": "mysql", "database": "db", "user": "u", "password_env": "SECRET"}
+    )
+    env = {**os.environ, "PATH": f"{bin_dir}:/usr/bin:/bin", "SECRET": "pw"}
+    out = subprocess.run(["sh", "-c", cmd.shell or ""], env=env, capture_output=True, text=True)
+    assert out.stdout.startswith("dump by mysqldump with pw: -u u --single-transaction")
+    (bin_dir / "mariadb-dump").write_text('#!/bin/sh\necho "dump by mariadb-dump"\n')
+    (bin_dir / "mariadb-dump").chmod(0o755)
+    out = subprocess.run(["sh", "-c", cmd.shell or ""], env=env, capture_output=True, text=True)
+    assert out.stdout.strip() == "dump by mariadb-dump"
 
 
 # ---------------------------------------------------------------- recipes
@@ -398,3 +421,13 @@ def test_doctor(tmp_path: Path, cli: Cli, server: Path, capsys: pytest.CaptureFi
     data = json.loads(capsys.readouterr().out)
     states = {c["name"]: c["state"] for c in data["targets"]["srv"]}
     assert states["source app"] == "ok" and states["source gone"] == "fail"
+
+
+def test_own_source_keeps_nested_exclusion() -> None:
+    """Replacing a recipe's source (to add excludes) must not back up a nested one twice."""
+    from eichhorn import recipes
+
+    immich = recipes.expand(recipes.load("immich"), RECIPE_CASES["immich"])
+    own = {"sources": [{"name": "compose", "path": "/srv/immich", "exclude": ["/postgres/"]}]}
+    compose = next(s for s in recipes.merge(immich, own)["sources"] if s["name"] == "compose")
+    assert compose["exclude"] == ["/postgres/", "/library/"]

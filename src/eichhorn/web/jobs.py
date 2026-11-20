@@ -57,7 +57,7 @@ class JobManager:
         return job
 
     def _run(self, job: Job) -> None:
-        env = {**os.environ, "NO_COLOR": "1", "PYTHONUNBUFFERED": "1"}
+        env = {**os.environ, "NO_COLOR": "1", "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"}
         try:
             proc = subprocess.Popen(
                 job.argv,

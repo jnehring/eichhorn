@@ -173,7 +173,11 @@ def expand(recipe: Recipe, given: dict[str, Any]) -> dict[str, Any]:
 
 
 def merge(recipe_data: dict[str, Any], own: dict[str, Any]) -> dict[str, Any]:
-    """Combine a recipe's result with the target file's own keys (spec 4.6)."""
+    """Combine a recipe's result with the target file's own keys (spec 4.6).
+
+    Nested sources are excluded from the outer one again afterwards, so that
+    replacing a recipe's source with an own one (e.g. to add excludes) does not
+    make a folder be backed up twice."""
     out = dict(recipe_data)
     for key, value in own.items():
         if key in ("recipe", "with"):
@@ -189,4 +193,9 @@ def merge(recipe_data: dict[str, Any], own: dict[str, Any]) -> dict[str, Any]:
             out["hooks"] = hooks
         else:
             out[key] = value
+    if own.get("sources"):
+        out["sources"] = [dict(s) for s in out.get("sources") or []]
+        for s in out["sources"]:
+            s["exclude"] = list(s.get("exclude") or [])
+        _exclude_nested(out["sources"])
     return out

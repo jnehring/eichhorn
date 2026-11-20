@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 from pathlib import Path
@@ -1210,7 +1211,21 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def use_utf8_output() -> None:
+    """Write UTF-8 even where Python would pick a legacy code page.
+
+    On Windows, output that goes to a pipe or a file (not the console) uses the
+    ANSI code page (e.g. cp1252), which cannot encode characters such as → or ….
+    """
+    for stream in (sys.stdout, sys.stderr):
+        encoding = (getattr(stream, "encoding", None) or "").lower().replace("-", "")
+        if encoding != "utf8" and hasattr(stream, "reconfigure"):
+            with contextlib.suppress(ValueError, OSError):
+                stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def main(argv: list[str] | None = None) -> int:
+    use_utf8_output()
     parser = build_parser()
     args = parser.parse_args(argv)
     try:

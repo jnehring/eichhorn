@@ -18,7 +18,7 @@ from typing import Any
 from eichhorn.config import Target
 from eichhorn.connections import Command, Connection, LocalConnection, connect
 from eichhorn.connections.base import StderrCollector
-from eichhorn.content import ContentMissing, Resolver, part_paths
+from eichhorn.content import ContentMissing, Resolver, part_names, part_paths
 from eichhorn.engines.common import CHUNK
 from eichhorn.excludes import Excludes
 from eichhorn.index import CHECKSUMS_NAME, INDEX_NAME, Entry
@@ -153,8 +153,7 @@ def _unexpected(resolver: Resolver, snap: str, index: dict[str, Entry]) -> list[
     expected: set[str] = set()
     for e in index.values():
         if e.type == "file" and e.here:
-            for p in part_paths(Path(""), e):
-                expected.add(p.as_posix())
+            expected.update(part_names(e))
     base = resolver.dir(snap)
     out = []
     for top in ("files", "dumps"):

@@ -9,6 +9,11 @@ is always marked **Storage format**.
 
 ### Added
 
+- MySQL/MariaDB dumps use `mariadb-dump` where it exists (MariaDB 11 and newer no longer
+  ship `mysqldump`) and fall back to `mysqldump`.
+- Recipes: a source of the target file that replaces a recipe's source keeps the automatic
+  exclusion of nested sources.
+- Windows: `verify` no longer reports every file as unexpected; output is always UTF-8.
 - Milestone 6, web interface (`pip install "eichhorn[web]"`, `eichhorn serve`):
   dashboard, target and snapshot pages with statistics and SVG charts, point-in-time file
   browser (also for sparse storage) with search, downloads, folder zips and file versions,

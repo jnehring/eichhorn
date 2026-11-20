@@ -63,6 +63,26 @@ def _in_container(dump: dict[str, Any], argv: list[str], env_prefix: str = "") -
     return ["docker", "exec", container, *inner] if container else inner
 
 
+def _mysql_tool(dump: dict[str, Any], new: str, old: str, args: list[str], sudo: bool) -> Command:
+    """Run MariaDB's tool, or MySQL's where MariaDB's is missing.
+
+    MariaDB 11 and newer have only `mariadb-dump`/`mariadb`; MySQL has only
+    `mysqldump`/`mysql`. The password comes from an environment variable.
+    """
+    pw = dump.get("password_env")
+    script = (
+        (f'MYSQL_PWD="${pw}"; export MYSQL_PWD; ' if pw else "")
+        + f"T=$(command -v {new} || command -v {old}) || "
+        + f"{{ echo 'neither {new} nor {old} found' >&2; exit 127; }}; "
+        + 'exec "$T" '
+        + shlex.join(args)
+    )
+    container = dump.get("container")
+    if container:
+        return Command(argv=["docker", "exec", container, "sh", "-c", script], sudo=sudo)
+    return Command(shell=script, sudo=sudo)
+
+
 def build_command(dump: dict[str, Any], sudo: bool = False) -> Command:
     kind = dump["type"]
     user = dump.get("user")
@@ -78,13 +98,12 @@ def build_command(dump: dict[str, Any], sudo: bool = False) -> Command:
         prefix = f'PGPASSWORD="${pw}" ' if pw else ""
         return Command(argv=_in_container(dump, argv, prefix), sudo=sudo)
     if kind == "mysql":
-        argv = ["mysqldump"]
+        args: list[str] = []
         if user:
-            argv += ["-u", user]
-        argv += ["--single-transaction", "--routines", "--triggers"]
-        argv += ["--all-databases"] if db in (None, "*") else ["--databases", db]
-        prefix = f'MYSQL_PWD="${pw}" ' if pw else ""
-        return Command(argv=_in_container(dump, argv, prefix), sudo=sudo)
+            args += ["-u", user]
+        args += ["--single-transaction", "--routines", "--triggers"]
+        args += ["--all-databases"] if db in (None, "*") else ["--databases", db]
+        return _mysql_tool(dump, "mariadb-dump", "mysqldump", args, sudo)
     run = dump.get("run") or ""
     if dump.get("container"):
         return Command(argv=["docker", "exec", dump["container"], "sh", "-c", run], sudo=sudo)

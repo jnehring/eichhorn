@@ -100,3 +100,21 @@ def test_relative_paths_are_rejected(tmp_path: Path) -> None:
 def test_duration() -> None:
     assert schema.parse_duration("30d") == 30 * 86400
     assert schema.parse_duration("2w") == 14 * 86400
+
+
+def test_output_is_utf8_even_on_a_legacy_code_page(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Windows pipes default to cp1252, which cannot encode → (regression test)."""
+    import io
+    import sys
+
+    from eichhorn.cli import main
+
+    raw = io.BytesIO()
+    stream = io.TextIOWrapper(raw, encoding="cp1252")
+    monkeypatch.setattr(sys, "stdout", stream)
+    assert main(["--config", str(tmp_path / "cfg"), "config", "check"]) == 0
+    print("docs → Backup-A …")
+    sys.stdout.flush()
+    assert "docs → Backup-A …" in raw.getvalue().decode("utf-8")
