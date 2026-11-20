@@ -32,7 +32,7 @@ All keys of the configuration files, generated from the schema that Eichhorn use
 |---|---|---|---|
 | `description` | str |  | Free text shown in lists. |
 | `host` | str | `local` | `local`, or an SSH host (alias from ~/.ssh/config or user@host). |
-| `sudo` | bool | `false` | Run transfer, dumps and hooks with sudo on the host. *(Implemented in milestone 2.)* |
+| `sudo` | bool | `false` | Run transfer, dumps and hooks with sudo on the host. |
 | `engine` | str (auto \| builtin \| rsync) |  | Transfer engine; overrides `defaults.engine`. |
 | `repositories` | list[str] |  | Repository names this target goes to (default: all). |
 | `retention` | map |  | Retention rules; override `defaults.retention`. *(Implemented in milestone 3.)* |
@@ -41,26 +41,27 @@ All keys of the configuration files, generated from the schema that Eichhorn use
 | `retention.keep_weekly` | int |  | The same per ISO week. |
 | `retention.keep_monthly` | int |  | The same per month. |
 | `retention.keep_yearly` | int |  | The same per year. |
-| `shell` | str (cmd \| powershell) |  | Shell for hooks on a local Windows host. *(Implemented in milestone 2.)* |
-| `recipe` | str |  | Name of a recipe that fills in sources, dumps and hooks. *(Implemented in milestone 2.)* |
-| `with` | any-map |  | Parameters for the recipe. *(Implemented in milestone 2.)* |
+| `shell` | str (cmd \| powershell) |  | Shell for hooks on a local Windows host. |
+| `recipe` | str |  | Name of a recipe that fills in sources, dumps and hooks. |
+| `with` | any-map |  | Parameters for the recipe. |
 | `sources` | list[map] |  | Folders to back up. |
 | `sources[].name` | str |  | Folder name inside the snapshot's `files/`. **Required.** |
 | `sources[].path` | str |  | Absolute path on the host. `~` works for local hosts. **Required.** |
 | `sources[].exclude` | list[str] |  | Exclude patterns (see below). |
-| `dumps` | list[map] |  | Database dumps. *(Implemented in milestone 2.)* |
+| `dumps` | list[map] |  | Database dumps. |
 | `dumps[].name` | str |  | File name inside `dumps/`. **Required.** |
 | `dumps[].type` | str (postgres \| mysql \| command) |  | Kind of dump. **Required.** |
 | `dumps[].container` | str |  | Docker container running the database. |
 | `dumps[].database` | str |  | Database name; `*` dumps all (postgres). |
 | `dumps[].user` | str |  | Database user. |
+| `dumps[].password_env` | str |  | Name of an environment variable (inside the container, or on the host) that holds the database password. The password itself never goes into the config. |
 | `dumps[].run` | str |  | Command whose stdout is the dump (type: command). |
 | `dumps[].ext` | str | `dump` | File extension for type: command. |
 | `dumps[].delta` | map |  | Store as a patch against a full dump. *(Implemented in milestone 5.)* |
 | `dumps[].delta.full_every` | int | `10` | A new full dump at least every N runs. |
 | `dumps[].delta.max_ratio` | float | `0.5` | …or when a patch exceeds this share. |
 | `dumps[].delta.max_base_age` | duration | `90d` | …or when the full dump is older. |
-| `hooks` | map |  | Commands run on the host. *(Implemented in milestone 2.)* |
+| `hooks` | map |  | Commands run on the host. |
 | `hooks.pre` | list[str] |  | Before dumps and transfer. A failure aborts the target. |
 | `hooks.post` | list[str] |  | After a successful run. |
 | `hooks.post_always` | list[str] |  | Always at the end, also after failures. |

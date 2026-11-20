@@ -1,0 +1,9 @@
+# A self-written app with Postgres (didgelab) on the web server.
+host: web1
+sudo: true
+recipe: compose-postgres
+with:
+  compose_dir: /srv/didgelab
+  db_container: didgelab-db-1
+  db_name: didgelab
+  db_user: didgelab

@@ -1,8 +1,9 @@
 """The builtin transfer engine (spec 5.2.2): pure Python, works on every OS.
 
 For each source it lists the host, compares with the previous snapshot's index,
-hardlinks unchanged files (or, with sparse storage, leaves them out), and copies
-new and changed files while hashing them.
+hardlinks unchanged files (or, with sparse storage, leaves them out), and then
+fetches new and changed files while hashing them: small files in bulk (one tar
+stream over SSH), large files one by one so that they can resume.
 """
 
 from __future__ import annotations
@@ -11,94 +12,40 @@ import errno
 import hashlib
 import os
 import time
-from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any
 
 from eichhorn.config import Source
-from eichhorn.connections.base import Connection, SourceEntry
+from eichhorn.connections.base import Connection, Readable, SourceEntry
+from eichhorn.engines.common import (
+    CHUNK,
+    Previous,
+    SourceStats,
+    entry_for,
+    parent,
+    same,
+)
 from eichhorn.excludes import Excludes
 from eichhorn.index import Entry
 from eichhorn.names import NameMapper, windows_rules_for
 from eichhorn.paths import long_path
 from eichhorn.stores.base import StoreCapabilities
 
-CHUNK = 1024 * 1024
-RESUME_THRESHOLD = 64 * 1024 * 1024  # files above this resume from a byte offset
+RESUME_THRESHOLD = 64 * 1024 * 1024  # files above this are fetched alone and resume
+BATCH_FILES = 5000
+BATCH_BYTES = 2 * 1024**3
 PARTIAL_SUFFIX = ".eichhorn-partial"
 PART_SUFFIX = ".eichhorn-part-"
 
 
 @dataclass
-class SourceStats:
-    name: str
-    path: str
-    status: str = "ok"
-    files: int = 0
-    dirs: int = 0
-    bytes: int = 0
-    transferred_bytes: int = 0
-    stored_bytes: int = 0
-    new: int = 0
-    new_bytes: int = 0
-    changed: int = 0
-    changed_bytes: int = 0
-    unchanged: int = 0
-    deleted: int = 0
-    deleted_bytes: int = 0
-    renamed: int = 0
-    split: int = 0
-    link_limit_copies: int = 0
-    duration_s: float = 0.0
-    warnings: list[str] = field(default_factory=list)
-    folder_changes: Counter[str] = field(default_factory=Counter)
-
-    def manifest(self) -> dict[str, object]:
-        top = [
-            {"folder": f or "(top level)", "changes": n}
-            for f, n in self.folder_changes.most_common(3)
-        ]
-        return {
-            "name": self.name,
-            "path": self.path,
-            "status": self.status,
-            "files": self.files,
-            "dirs": self.dirs,
-            "bytes": self.bytes,
-            "transferred_bytes": self.transferred_bytes,
-            "stored_bytes": self.stored_bytes,
-            "duration_s": round(self.duration_s, 2),
-            "renamed": self.renamed,
-            "split": self.split,
-            "link_limit_copies": self.link_limit_copies,
-            "changes": {
-                "new": self.new,
-                "new_bytes": self.new_bytes,
-                "changed": self.changed,
-                "changed_bytes": self.changed_bytes,
-                "deleted": self.deleted,
-                "deleted_bytes": self.deleted_bytes,
-                "unchanged": self.unchanged,
-                "top_folders": top,
-            },
-        }
-
-
-@dataclass
-class Previous:
-    """The snapshot to compare with and (with hardlink storage) to link from."""
-
-    dir: Path | None
-    index: dict[str, Entry]
-
-
-def _parent(rel: str) -> str:
-    return rel.rsplit("/", 1)[0] if "/" in rel else ""
-
-
-def _same(a: Entry, b: SourceEntry) -> bool:
-    return a.type == "file" and a.size == b.size and a.mtime_ns == b.mtime_ns
+class _Pending:
+    item: SourceEntry
+    entry: Entry
+    is_new: bool
+    target: Path
+    done: bool = False
 
 
 class BuiltinEngine:
@@ -109,27 +56,23 @@ class BuiltinEngine:
 
     # ------------------------------------------------------------------
     def transfer(
-        self,
-        conn: Connection,
-        source: Source,
-        dest: Path,
-        prev: Previous,
-        on_progress: object = None,
+        self, conn: Connection, source: Source, dest: Path, prev: Previous
     ) -> tuple[list[Entry], SourceStats]:
         """Copy one source into `dest` (the .incomplete snapshot folder)."""
         started = time.monotonic()
         stats = SourceStats(source.name, source.path)
-        listing = conn.list(source.path, Excludes(source.exclude))
+        listing = conn.listing(source.path, Excludes(source.exclude))
         stats.warnings += listing.warnings
         mapper = NameMapper(windows_rules_for(self.caps.posix_metadata), self.caps.case_sensitive)
         prefix = f"files/{source.name}"
         stored_dirs: dict[str, str] = {"": prefix}
-        (long_path(dest / prefix)).mkdir(parents=True, exist_ok=True)
+        long_path(dest / prefix).mkdir(parents=True, exist_ok=True)
         entries: list[Entry] = [Entry(prefix, "dir")]
         seen: set[str] = set()
+        pending: list[_Pending] = []
 
         for item in listing.entries:
-            parent_rel = _parent(item.rel)
+            parent_rel = parent(item.rel)
             base_name = item.rel.rsplit("/", 1)[-1]
             parent_stored = stored_dirs.get(parent_rel, prefix)
             stored_name = mapper.stored_name(parent_stored, base_name)
@@ -138,17 +81,7 @@ class BuiltinEngine:
             if stored_name != base_name:
                 stats.renamed += 1
             seen.add(p)
-            entry = Entry(
-                p=p,
-                type=item.type,
-                size=item.size,
-                mtime_ns=item.mtime_ns,
-                uid=item.uid,
-                gid=item.gid,
-                mode=item.mode,
-                stored=stored if stored != p else None,
-                target=item.target,
-            )
+            entry = entry_for(item, p, stored)
             if item.type == "dir":
                 stored_dirs[item.rel] = stored
                 long_path(dest / stored).mkdir(parents=True, exist_ok=True)
@@ -158,81 +91,47 @@ class BuiltinEngine:
             if item.type == "symlink":
                 entries.append(entry)  # kept in the index only (spec 3.5)
                 continue
-            if self._file(conn, source, item, entry, dest, prev, stats):
-                stats.files += 1
-                stats.bytes += entry.size
-                entries.append(entry)
+            entries.append(entry)
+            if not self._keep_unchanged(item, entry, dest, prev, stats):
+                old = prev.index.get(p)
+                is_new = old is None or old.type != "file"
+                pending.append(_Pending(item, entry, is_new, long_path(dest / entry.stored_path)))
 
-        for p, old in prev.index.items():
-            if old.type == "file" and p.startswith(prefix + "/") and p not in seen:
-                stats.deleted += 1
-                stats.deleted_bytes += old.size
-                stats.folder_changes[_parent(p.removeprefix(prefix + "/"))] += 1
+        self._fetch(conn, source, pending, stats)
+        dropped = {id(pd.entry) for pd in pending if not pd.done}
+        vanished = {e.p for e in entries if id(e) in dropped}
+        entries = [e for e in entries if id(e) not in dropped]
+        for e in entries:
+            if e.type == "file":
+                stats.files += 1
+                stats.bytes += e.size
+        stats.count_deleted(prev.index, prefix, seen - vanished)
         stats.duration_s = time.monotonic() - started
         return entries, stats
 
     # ------------------------------------------------------------------
-    def _file(
-        self,
-        conn: Connection,
-        source: Source,
-        item: SourceEntry,
-        entry: Entry,
-        dest: Path,
-        prev: Previous,
-        stats: SourceStats,
+    def _keep_unchanged(
+        self, item: SourceEntry, entry: Entry, dest: Path, prev: Previous, stats: SourceStats
     ) -> bool:
+        """Link (or, sparse, skip) an unchanged file. False means: fetch it."""
         old = prev.index.get(entry.p)
-        folder = _parent(item.rel)
-        max_size = self.caps.max_file_size
-        will_split = bool(max_size and item.size > max_size)
-        target = long_path(dest / entry.stored_path)
-
-        if old is not None and _same(old, item) and old.sha256:
-            entry.sha256 = old.sha256
+        if old is None or not same(old, item) or not old.sha256:
+            return False
+        entry.sha256 = old.sha256
+        entry.parts = old.parts
+        if not self.caps.hardlinks:
+            entry.here = False  # sparse: stored in an older snapshot (spec 3.8)
             stats.unchanged += 1
-            if not self.caps.hardlinks:
-                entry.here = False  # sparse: stored in an older snapshot (spec 3.8)
-                entry.parts = old.parts
-                return True
-            if self._resumed_ok(target, item, will_split):
-                entry.parts = old.parts
-                return True
-            if prev.dir is not None and self._link(prev.dir, old, dest, entry, stats):
-                return True
-            # could not link (previous snapshot damaged?): fetch again below
-            stats.unchanged -= 1
-
-        is_new = old is None or old.type != "file"
-        try:
-            if will_split:
-                assert max_size is not None
-                digest, size, transferred = self._copy_split(conn, source, item, target, max_size)
-                entry.parts = -(-size // max_size)
-                stats.split += 1
-            else:
-                digest, size, transferred = self._copy(conn, source, item, target)
-        except FileNotFoundError:
-            stats.warnings.append(f"vanished while copying: {item.rel}")
-            return False
-        except PermissionError:
-            stats.warnings.append(f"no permission to read: {item.rel}")
-            stats.status = "partial"
-            return False
-        if size != item.size:
-            stats.warnings.append(f"changed while copying: {item.rel}")
-            entry.size = size
-        entry.sha256 = digest
-        stats.transferred_bytes += transferred
-        stats.stored_bytes += size
-        if is_new:
-            stats.new += 1
-            stats.new_bytes += size
-        else:
-            stats.changed += 1
-            stats.changed_bytes += size
-        stats.folder_changes[folder] += 1
-        return True
+            return True
+        target = long_path(dest / entry.stored_path)
+        if self._resumed_ok(target, item, bool(old.parts)) or (
+            prev.dir is not None and self._link(prev.dir, old, dest, entry, stats)
+        ):
+            stats.unchanged += 1
+            return True
+        entry.sha256 = None  # could not link (previous snapshot damaged?): fetch again
+        entry.parts = None
+        return False
 
     def _resumed_ok(self, target: Path, item: SourceEntry, split: bool) -> bool:
         """A file left by an interrupted run that is already complete."""
@@ -267,18 +166,97 @@ class BuiltinEngine:
                     stats.link_limit_copies += 1
                     continue
                 return False
-        entry.parts = old.parts
         return True
 
-    def _copy(
-        self, conn: Connection, source: Source, item: SourceEntry, target: Path
+    # ------------------------------------------------------------------
+    def _fetch(
+        self, conn: Connection, source: Source, pending: list[_Pending], stats: SourceStats
+    ) -> None:
+        max_size = self.caps.max_file_size
+        alone = [
+            pd
+            for pd in pending
+            if pd.item.size > RESUME_THRESHOLD or (max_size and pd.item.size > max_size)
+        ]
+        alone_ids = {id(pd) for pd in alone}
+        bulk = [pd for pd in pending if id(pd) not in alone_ids]
+
+        # small files: in batches, one stream per batch
+        batch: list[_Pending] = []
+        size = 0
+        for pd in bulk:
+            batch.append(pd)
+            size += pd.item.size
+            if len(batch) >= BATCH_FILES or size >= BATCH_BYTES:
+                self._fetch_batch(conn, source, batch, stats)
+                batch, size = [], 0
+        if batch:
+            self._fetch_batch(conn, source, batch, stats)
+
+        # large files: one by one, resumable
+        for pd in alone:
+            try:
+                if max_size and pd.item.size > max_size:
+                    digest, written = self._copy_split(conn, source, pd, max_size)
+                    pd.entry.parts = -(-written // max_size)
+                    stats.split += 1
+                    transferred = written
+                else:
+                    digest, written, transferred = self._copy_resumable(conn, source, pd)
+            except FileNotFoundError:
+                stats.warnings.append(f"vanished while copying: {pd.item.rel}")
+                continue
+            except PermissionError:
+                stats.warnings.append(f"no permission to read: {pd.item.rel}")
+                stats.status = "partial"
+                continue
+            self._done(pd, digest, written, transferred, stats)
+
+    def _fetch_batch(
+        self, conn: Connection, source: Source, batch: list[_Pending], stats: SourceStats
+    ) -> None:
+        by_rel = {pd.item.rel: pd for pd in batch}
+        for fetched in conn.read_many(source.path, list(by_rel)):
+            pd = by_rel.get(fetched.rel)
+            if pd is None or pd.done:
+                continue
+            if fetched.stream is None:  # hardlink to an earlier member of this stream
+                other = by_rel.get(fetched.link_to or "")
+                if other is None or not other.done:
+                    continue
+                with open(other.target, "rb") as fh:
+                    digest, written = _write(fh, pd.target, pd.item.mtime_ns)
+                self._done(pd, digest, written, 0, stats)
+                continue
+            digest, written = _write(fetched.stream, pd.target, pd.item.mtime_ns)
+            self._done(pd, digest, written, written, stats)
+        for pd in batch:
+            if not pd.done:
+                stats.warnings.append(f"vanished or unreadable: {pd.item.rel}")
+        errors = getattr(conn, "last_tar_errors", "")
+        if errors:
+            stats.warnings += [f"tar: {line}" for line in errors.splitlines()[:20]]
+
+    def _done(
+        self, pd: _Pending, digest: str, written: int, transferred: int, stats: SourceStats
+    ) -> None:
+        if written != pd.item.size:
+            stats.warnings.append(f"changed while copying: {pd.item.rel}")
+            pd.entry.size = written
+        pd.entry.sha256 = digest
+        pd.done = True
+        stats.count_fetched(pd.entry, pd.is_new, parent(pd.item.rel), transferred)
+
+    def _copy_resumable(
+        self, conn: Connection, source: Source, pd: _Pending
     ) -> tuple[str, int, int]:
+        item, target = pd.item, pd.target
         h = hashlib.sha256()
         partial = target.with_name(target.name + PARTIAL_SUFFIX)
         sidecar = partial.with_name(partial.name + ".src")  # which source version it holds
         version = f"{item.size} {item.mtime_ns}"
         offset = 0
-        if item.size > RESUME_THRESHOLD and partial.exists():
+        if partial.exists():
             try:
                 same_version = sidecar.read_text(encoding="utf-8") == version
             except OSError:
@@ -288,26 +266,23 @@ class BuiltinEngine:
                 offset = 0
             else:
                 with open(partial, "rb") as fh:
-                    for chunk in iter(lambda: fh.read(CHUNK), b""):
+                    while chunk := fh.read(CHUNK):
                         h.update(chunk)
-        if item.size > RESUME_THRESHOLD:
-            sidecar.write_text(version, encoding="utf-8")
-        mode = "ab" if offset else "wb"
-        transferred = 0
-        with conn.open_read(source.path, item.rel, offset) as src, open(partial, mode) as out:
+        sidecar.write_text(version, encoding="utf-8")
+        with (
+            conn.open_read(source.path, item.rel, offset) as src,
+            open(partial, "ab" if offset else "wb") as out,
+        ):
             transferred = _pump(src, out, h)
-            out.flush()
-            os.fsync(out.fileno())
-        size = offset + transferred
         os.replace(partial, target)
-        if item.size > RESUME_THRESHOLD:
-            sidecar.unlink(missing_ok=True)
         os.utime(target, ns=(item.mtime_ns, item.mtime_ns))
-        return h.hexdigest(), size, transferred
+        sidecar.unlink(missing_ok=True)
+        return h.hexdigest(), offset + transferred, transferred
 
     def _copy_split(
-        self, conn: Connection, source: Source, item: SourceEntry, target: Path, max_size: int
-    ) -> tuple[str, int, int]:
+        self, conn: Connection, source: Source, pd: _Pending, max_size: int
+    ) -> tuple[str, int]:
+        item, target = pd.item, pd.target
         h = hashlib.sha256()
         size = 0
         part = 0
@@ -324,10 +299,25 @@ class BuiltinEngine:
                 size += written
                 if written < max_size:
                     break
-        return h.hexdigest(), size, size
+        return h.hexdigest(), size
 
 
-def _pump(src: IO[bytes], out: IO[bytes], h: Any, limit: int | None = None) -> int:
+def _write(stream: IO[bytes] | Readable, target: Path, mtime_ns: int) -> tuple[str, int]:
+    """Write a stream to `target` via a temporary name, hashing it."""
+    h = hashlib.sha256()
+    partial = target.with_name(target.name + PARTIAL_SUFFIX)
+    try:
+        with open(partial, "wb") as out:
+            written = _pump(stream, out, h)
+        os.replace(partial, target)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
+    os.utime(target, ns=(mtime_ns, mtime_ns))
+    return h.hexdigest(), written
+
+
+def _pump(src: Any, out: IO[bytes], h: Any, limit: int | None = None) -> int:
     total = 0
     while True:
         want = CHUNK if limit is None else min(CHUNK, limit - total)
@@ -348,3 +338,6 @@ def _copy_local(src: Path, dst: Path) -> None:
             b.write(chunk)
     st = src.stat()
     os.utime(dst, ns=(st.st_mtime_ns, st.st_mtime_ns))
+
+
+__all__ = ["RESUME_THRESHOLD", "BuiltinEngine", "Previous", "SourceStats"]

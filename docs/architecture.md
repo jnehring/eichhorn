@@ -32,8 +32,12 @@ destination is a new class, not a rewrite.
 | `fsinfo.py` | probing a drive: hardlinks, case sensitivity, file system name |
 | `repository.py` | creating and finding repositories |
 | `stores/` | the store interface and the local file system store |
-| `connections/` | the connection interface and the local connection |
-| `engines/builtin.py` | listing, comparing, hardlinking, copying with hashing, resume, splitting |
+| `connections/` | the connection interface; `local.py`, and `ssh.py` (OpenSSH, find/python3 listing, tar stream, `tail -c +N`) |
+| `engines/builtin.py` | comparing, hardlinking, bulk and resumable copying with hashing, splitting |
+| `engines/rsync.py` | rsync with `--link-dest`, then inode matching for the index |
+| `dumps.py`, `hooks.py` | database dumps streamed into gzip; hook phases |
+| `recipes/` | recipe templates (YAML) and their expansion and merging |
+| `doctor.py` | checks of hosts, tools, sudo, folders, containers and databases |
 | `excludes.py` | exclude patterns |
 | `names.py` | escaping names and resolving case collisions |
 | `index.py` | the file index and `checksums.sha256` |

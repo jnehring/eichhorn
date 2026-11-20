@@ -1,0 +1,54 @@
+description: Nextcloud (docker compose, official image). User files, config and the database, in maintenance mode.
+params:
+  compose_dir:
+    required: true
+    doc: Folder with Nextcloud's docker-compose.yml, e.g. /srv/nextcloud
+  data_dir:
+    required: true
+    doc: Nextcloud's data folder on the host, e.g. /srv/nextcloud/html/data
+  config_dir:
+    doc: Nextcloud's config folder on the host, if it is not inside compose_dir
+  app_container:
+    required: true
+    doc: Name of the Nextcloud app container (runs occ)
+  db_container:
+    required: true
+    doc: Name of the database container
+  db_type:
+    default: postgres
+    doc: postgres or mysql (also for MariaDB)
+  db_name:
+    default: nextcloud
+    doc: Database name
+  db_user:
+    default: nextcloud
+    doc: Database user
+  db_password_env:
+    doc: Environment variable in the database container that holds the password (e.g. MYSQL_PASSWORD); usually not needed for Postgres
+target:
+  description: Nextcloud
+  sources:
+    - name: data
+      path: ${data_dir}
+      exclude:
+        - /appdata_*/preview/
+        - "*/cache/"
+        - "*/uploads/"
+        - /updater-*/
+    - name: config
+      path: ${config_dir}
+      when: config_dir
+    - name: compose
+      path: ${compose_dir}
+  dumps:
+    - name: nextcloud
+      type: ${db_type}
+      container: ${db_container}
+      database: ${db_name}
+      user: ${db_user}
+      password_env: ${db_password_env}
+  hooks:
+    pre:
+      - docker exec -u www-data ${app_container} php occ maintenance:mode --on
+    post_always:
+      - docker exec -u www-data ${app_container} php occ maintenance:mode --off

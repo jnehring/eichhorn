@@ -48,10 +48,12 @@ jobs:
         run: |
           uv run python -m eichhorn._docs cli > docs/cli.md
           uv run python -m eichhorn._docs config > docs/configuration-reference.md
+          uv run python -m eichhorn._docs recipes > docs/recipes/README.md
           git diff --exit-code -- docs/ || {
-            echo "::error::docs/cli.md or docs/configuration-reference.md is outdated."
+            echo "::error::A generated docs page is outdated."
             echo "Run: uv run python -m eichhorn._docs cli > docs/cli.md"
             echo "     uv run python -m eichhorn._docs config > docs/configuration-reference.md"
+            echo "     uv run python -m eichhorn._docs recipes > docs/recipes/README.md"
             exit 1
           }
       - name: Example configs are valid

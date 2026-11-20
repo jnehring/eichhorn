@@ -1,0 +1,45 @@
+description: Immich photo library (docker compose). Originals, uploads and profiles plus a pg_dumpall of the database.
+params:
+  compose_dir:
+    required: true
+    doc: Folder with Immich's docker-compose.yml and .env, e.g. /srv/immich
+  upload_location:
+    required: true
+    doc: The UPLOAD_LOCATION from Immich's .env, as an absolute path, e.g. /srv/immich/library
+  db_container:
+    default: immich_postgres
+    doc: Name of the Postgres container
+  db_user:
+    default: postgres
+    doc: Database user (DB_USERNAME in .env)
+  include_thumbs:
+    default: false
+    doc: Also back up thumbnails and transcoded videos (Immich can regenerate them)
+  stop_server:
+    default: false
+    doc: Stop the Immich server during the backup, for a fully consistent copy
+  server_container:
+    default: immich_server
+    doc: Name of the Immich server container (used with stop_server)
+target:
+  description: Immich
+  sources:
+    - name: library
+      path: ${upload_location}
+      exclude:
+        - {value: /thumbs/, when: "!include_thumbs"}
+        - {value: /encoded-video/, when: "!include_thumbs"}
+        - /backups/
+    - name: compose
+      path: ${compose_dir}
+  dumps:
+    - name: immich
+      type: postgres
+      container: ${db_container}
+      database: "*"
+      user: ${db_user}
+  hooks:
+    pre:
+      - {value: "docker stop ${server_container}", when: stop_server}
+    post_always:
+      - {value: "docker start ${server_container}", when: stop_server}

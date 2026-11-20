@@ -1,0 +1,12 @@
+description: A static website (a folder of files).
+params:
+  path:
+    required: true
+    doc: The web root, e.g. /srv/sites/example.org
+  name:
+    default: site
+    doc: Folder name in the snapshot (useful when a target has several sites)
+target:
+  sources:
+    - name: ${name}
+      path: ${path}

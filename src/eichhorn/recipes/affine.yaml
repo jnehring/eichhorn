@@ -1,0 +1,35 @@
+description: AFFiNE self-hosted (docker compose). Uploaded blobs, config and the Postgres database.
+params:
+  compose_dir:
+    required: true
+    doc: Folder with AFFiNE's docker-compose.yml and .env
+  upload_location:
+    required: true
+    doc: UPLOAD_LOCATION from AFFiNE's .env, as an absolute path (default in AFFiNE is ~/.affine/self-host/storage)
+  config_location:
+    required: true
+    doc: CONFIG_LOCATION from AFFiNE's .env, as an absolute path (default in AFFiNE is ~/.affine/self-host/config)
+  db_container:
+    default: affine_postgres
+    doc: Name of the Postgres container
+  db_name:
+    default: affine
+    doc: Database name (DB_DATABASE)
+  db_user:
+    default: affine
+    doc: Database user (DB_USERNAME)
+target:
+  description: AFFiNE
+  sources:
+    - name: storage
+      path: ${upload_location}
+    - name: config
+      path: ${config_location}
+    - name: compose
+      path: ${compose_dir}
+  dumps:
+    - name: affine
+      type: postgres
+      container: ${db_container}
+      database: ${db_name}
+      user: ${db_user}

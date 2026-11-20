@@ -49,7 +49,56 @@ sources:
 repositories: [Backup-A]
 ```
 
+A server over SSH is described the same way, with `host:` set to the SSH host. Add database
+dumps and hooks for apps – see [Servers over SSH](hosts-and-ssh.md) and
+[Dumps and hooks](dumps-and-hooks.md):
+
+```yaml
+host: web1
+sudo: true
+sources:
+  - name: data
+    path: /srv/app/data
+dumps:
+  - name: app
+    type: postgres
+    container: app-db
+    database: app
+    user: app
+hooks:
+  pre: [docker stop app-worker]
+  post_always: [docker start app-worker]
+```
+
 More examples are in [`examples/`](../examples/).
+
+## Recipes
+
+For known apps, a recipe fills in sources, dumps, excludes and hooks from a few parameters:
+
+```yaml
+host: web1
+sudo: true
+recipe: nextcloud
+with:
+  compose_dir: /srv/nextcloud
+  data_dir: /srv/nextcloud/html/data
+  app_container: nextcloud-app-1
+  db_container: nextcloud-db-1
+```
+
+- `eichhorn recipe list` shows all recipes and their parameters;
+  `eichhorn target new NAME --recipe RECIPE` writes a file with all parameters.
+- `eichhorn target show NAME --expanded` prints what the recipe produces.
+- Anything you add in the target file is added to the recipe's result: extra `sources`,
+  `dumps` and `hooks`. A source or dump with the same `name` as one from the recipe
+  replaces it.
+- If one source lies inside another (for example the data folder inside the compose
+  folder), the inner one is excluded from the outer one automatically.
+
+The built-in recipes are described in [Recipes](recipes/README.md). Your own recipes go into
+`<config>/recipes/<name>.yaml`, in the same format as the
+[built-in ones](../src/eichhorn/recipes/).
 
 ## Exclude patterns
 

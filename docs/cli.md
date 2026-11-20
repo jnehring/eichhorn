@@ -84,7 +84,7 @@ eichhorn target new [-h] [--recipe RECIPE] name
 | Argument | Meaning |
 |---|---|
 | `name` |  |
-| `--recipe` `RECIPE` | start from a recipe (milestone 2) |
+| `--recipe` `RECIPE` | start from a recipe (see `eichhorn recipe list`) |
 
 ## `eichhorn target show`
 
@@ -126,6 +126,26 @@ eichhorn run [-h] [--all] [--repo NAME] [--all-repos] [--label LABEL] [--pin] [-
 | `--dry-run` | show what would be copied |
 | `--restart` | throw away an unfinished run instead of resuming it |
 | `--no-prune` | skip pruning (milestone 3) |
+
+## `eichhorn doctor`
+
+Check targets' hosts, tools and databases.
+
+```text
+eichhorn doctor [-h] [TARGET ...]
+```
+
+| Argument | Meaning |
+|---|---|
+| `TARGET` | default: all targets |
+
+## `eichhorn recipe list`
+
+List recipes and their parameters.
+
+```text
+eichhorn recipe list [-h]
+```
 
 ## `eichhorn status`
 

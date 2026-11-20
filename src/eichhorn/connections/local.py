@@ -4,29 +4,85 @@ from __future__ import annotations
 
 import os
 import stat
+import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any
 
-from eichhorn.connections.base import ConnectionCapabilities, ListResult, SourceEntry
-from eichhorn.excludes import Excludes
+from eichhorn.connections.base import (
+    Command,
+    ConnectionCapabilities,
+    Fetched,
+    ListResult,
+    Readable,
+    SourceEntry,
+)
 from eichhorn.paths import long_path
+from eichhorn.tools import local_rsync
+
+
+class _FileReader:
+    def __init__(self, path: Path, offset: int) -> None:
+        self.fh = open(path, "rb")  # noqa: SIM115 - closed in __exit__
+        if offset:
+            self.fh.seek(offset)
+
+    def read(self, n: int = -1, /) -> bytes:
+        return self.fh.read(n)
+
+    def __enter__(self) -> _FileReader:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.fh.close()
 
 
 class LocalConnection:
     host = "local"
 
+    def __init__(self, sudo: bool = False, shell: str | None = None) -> None:
+        self.sudo = sudo
+        self.shell = shell  # cmd | powershell on Windows
+
     @property
     def capabilities(self) -> ConnectionCapabilities:
         return ConnectionCapabilities(
-            shell=True, sudo=False, rsync=False, posix_metadata=sys.platform != "win32"
+            shell=True,
+            sudo=sys.platform != "win32",
+            rsync=local_rsync() is not None,
+            posix_metadata=sys.platform != "win32",
+            bulk=False,
         )
 
+    # ---- commands ----------------------------------------------------
+    def argv_for(self, cmd: Command) -> list[str]:
+        if cmd.shell is not None:
+            if sys.platform == "win32":
+                if self.shell == "powershell":
+                    argv = ["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd.shell]
+                else:
+                    argv = ["cmd", "/c", cmd.shell]
+            else:
+                argv = ["sh", "-c", cmd.shell]
+        else:
+            argv = list(cmd.argv or [])
+        if cmd.sudo and sys.platform != "win32":
+            argv = ["sudo", "-n", *argv]
+        return argv
+
+    def popen(
+        self, cmd: Command, stdin: int | None = None, stdout: int | None = subprocess.PIPE
+    ) -> subprocess.Popen[bytes]:
+        return subprocess.Popen(
+            self.argv_for(cmd), stdin=stdin, stdout=stdout, stderr=subprocess.PIPE
+        )
+
+    # ---- files -------------------------------------------------------
     def exists(self, root: str) -> bool:
         return Path(root).is_dir()
 
-    def list(self, root: str, excludes: object) -> ListResult:
-        assert isinstance(excludes, Excludes)
+    def listing(self, root: str, excludes: Any) -> ListResult:
         result = ListResult()
         base = long_path(Path(root))
 
@@ -72,8 +128,15 @@ class LocalConnection:
         walk(base, "")
         return result
 
-    def open_read(self, root: str, rel: str, offset: int = 0) -> BinaryIO:
-        fh = open(long_path(Path(root) / rel), "rb")  # noqa: SIM115 - caller closes
-        if offset:
-            fh.seek(offset)
-        return fh
+    def open_read(self, root: str, rel: str, offset: int = 0) -> Readable:
+        return _FileReader(long_path(Path(root) / rel), offset)
+
+    def read_many(self, root: str, rels: list[str]) -> Iterator[Fetched]:
+        for rel in rels:
+            path = long_path(Path(root) / rel)
+            try:
+                fh = open(path, "rb")  # noqa: SIM115 - closed below
+            except FileNotFoundError:
+                continue  # vanished; the engine notices the missing file
+            with fh:
+                yield Fetched(rel, fh, os.fstat(fh.fileno()).st_size)

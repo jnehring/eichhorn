@@ -1,0 +1,7 @@
+# The Caddy reverse proxy, including its certificates.
+host: web1
+sudo: true
+recipe: caddy
+with:
+  compose_dir: /srv/caddy
+  data_dir: /srv/caddy/data

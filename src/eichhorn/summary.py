@@ -37,6 +37,17 @@ def format_summary(m: dict[str, Any]) -> str:
         top = [t for t in ch.get("top_folders", []) if t["changes"] > 1]
         if top:
             lines.append(f"  {' ' * width} most changes: {top[0]['folder']} ({top[0]['changes']})")
+    if m.get("dumps"):
+        parts = []
+        for d in m["dumps"]:
+            if d.get("status") == "ok":
+                parts.append(f"{d['name']} {o.size(d.get('bytes', 0))}")
+            else:
+                parts.append(o.red(f"{d['name']} failed"))
+        lines.append(f"  {'dumps'.ljust(width)} {', '.join(parts)}")
+    failed_hooks = [h for h in m.get("hooks", []) if h.get("exit_code")]
+    if failed_hooks:
+        lines.append(o.red(f"  {'hooks'.ljust(width)} {len(failed_hooks)} failed"))
     repo = m.get("repository", {})
     stored = sum(s.get("stored_bytes", 0) for s in m.get("sources", []))
     lines.append(

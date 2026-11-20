@@ -9,6 +9,13 @@ plain files.
 2. [Getting started](getting-started.md): your first repository, target and backup.
 3. [Concepts](concepts.md): repositories, targets, snapshots and how storage works.
 
+## Servers and apps
+
+- [Servers over SSH](hosts-and-ssh.md): requirements, SSH setup, sudo, engines.
+- [Dumps and hooks](dumps-and-hooks.md): databases and maintenance mode.
+- [Recipes](recipes/README.md): Immich, Nextcloud, AFFiNE, Postgres apps, Caddy, static sites.
+- [Guide: backing up a Docker server](guides/backup-docker-server.md): step by step.
+
 ## Reference
 
 - [Configuration](configuration.md): how to write `eichhorn.yaml` and target files.
@@ -29,6 +36,5 @@ plain files.
 
 ## Coming with later milestones
 
-Guides for backing up a Docker server, rotating two drives, restoring an app,
-exFAT drives, Windows and a remote backup server, plus one page per recipe
-(Immich, Nextcloud, AFFiNE, …) and the web interface.
+Guides for rotating two drives, restoring an app, exFAT drives, Windows and a remote
+backup server, and the web interface.

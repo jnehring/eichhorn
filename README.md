@@ -11,9 +11,9 @@ complete but only new data takes space.
 ![Eichhorn architecture](https://raw.githubusercontent.com/jnehring/eichhorn/main/docs/architecture.png)
 
 > [!WARNING]
-> Eichhorn is in early development. Milestone 1 (local folders, snapshots, the
-> command line) works. SSH servers, database dumps, pruning and the web interface
-> are coming. See the [roadmap](#roadmap).
+> Eichhorn is in early development. Local folders, servers over SSH, database dumps,
+> hooks and recipes work. Pruning, restore and the web interface are coming. See the
+> [roadmap](#roadmap).
 
 ## Quick start
 
@@ -35,6 +35,25 @@ eichhorn snapshots documents
 eichhorn status
 ```
 
+A server app with a recipe:
+
+```yaml
+# targets/nextcloud.yaml
+host: web1          # an SSH host
+sudo: true
+recipe: nextcloud
+with:
+  compose_dir: /srv/nextcloud
+  data_dir: /srv/nextcloud/html/data
+  app_container: nextcloud-app-1
+  db_container: nextcloud-db-1
+```
+
+```bash
+eichhorn doctor nextcloud    # checks SSH, sudo, folders, containers, database
+eichhorn run nextcloud
+```
+
 The backup is now on the drive:
 
 ```text
@@ -50,6 +69,10 @@ eichhorn/targets/documents/snapshots/2026-11-20T14-30-05/files/documents/…
 - **Integrity.** Each snapshot has a standard `checksums.sha256` (`sha256sum -c` works).
 - **Safe.** Drives are recognised by ID, runs lock the drive, an interrupted run resumes,
   and an unfinished snapshot never looks complete.
+- **Servers over SSH**, nothing to install on the server. Database dumps (Postgres,
+  MySQL/MariaDB, in Docker) are streamed and compressed; hooks put apps into maintenance mode.
+- **Recipes** for Immich, Nextcloud, AFFiNE, Postgres apps, Caddy and static sites.
+- **Two engines:** pure-Python everywhere, or rsync with delta transfer.
 - **Run summary** after each backup: new, changed and deleted files, time and space used.
 - **Keeps your computer awake** during long runs.
 
@@ -61,6 +84,8 @@ The full documentation is in [`docs/`](https://github.com/jnehring/eichhorn/tree
 - [Installation](https://github.com/jnehring/eichhorn/blob/main/docs/installation.md)
 - [Concepts](https://github.com/jnehring/eichhorn/blob/main/docs/concepts.md)
 - [Configuration](https://github.com/jnehring/eichhorn/blob/main/docs/configuration.md)
+- [Guide: backing up a Docker server](https://github.com/jnehring/eichhorn/blob/main/docs/guides/backup-docker-server.md)
+- [Recipes](https://github.com/jnehring/eichhorn/blob/main/docs/recipes/README.md)
 - [Command reference](https://github.com/jnehring/eichhorn/blob/main/docs/cli.md)
 - [Getting data back without Eichhorn](https://github.com/jnehring/eichhorn/blob/main/docs/recovery-without-eichhorn.md)
 
@@ -69,7 +94,7 @@ The full documentation is in [`docs/`](https://github.com/jnehring/eichhorn/tree
 | Milestone | Content | State |
 |---|---|---|
 | 1 | Core CLI: repositories, local folders, snapshots, summary | ✅ done |
-| 2 | SSH servers, rsync engine, database dumps, hooks, recipes (Immich, Nextcloud, …) | planned |
+| 2 | SSH servers, rsync engine, database dumps, hooks, recipes (Immich, Nextcloud, …) | ✅ done |
 | 3 | Retention and pruning, pins, `diff`, `find`, `restore`, `verify` | planned |
 | 4 | Several drives per run, `repo sync` | planned |
 | 5 | Sparse-storage browsing and pruning, delta dumps | planned |

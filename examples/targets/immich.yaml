@@ -1,0 +1,7 @@
+# Immich on the web server. Adjust paths and names to your server (eichhorn doctor helps).
+host: web1
+sudo: true
+recipe: immich
+with:
+  compose_dir: /srv/immich
+  upload_location: /srv/immich/library

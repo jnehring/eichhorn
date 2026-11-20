@@ -1,0 +1,10 @@
+# Two static websites in one target.
+host: web1
+sudo: true
+recipe: static-site
+with:
+  path: /srv/sites/endervision.de
+  name: endervision
+sources:
+  - name: jannehring
+    path: /srv/sites/jannehring.de

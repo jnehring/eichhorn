@@ -99,7 +99,6 @@ TARGET_SCHEMA: Schema = (
         "bool",
         "Run transfer, dumps and hooks with sudo on the host.",
         default=False,
-        milestone="2",
     ),
     Field("engine", "str", "Transfer engine; overrides `defaults.engine`.", choices=ENGINES),
     Field("repositories", "list[str]", "Repository names this target goes to (default: all)."),
@@ -115,12 +114,9 @@ TARGET_SCHEMA: Schema = (
         "str",
         "Shell for hooks on a local Windows host.",
         choices=("cmd", "powershell"),
-        milestone="2",
     ),
-    Field(
-        "recipe", "str", "Name of a recipe that fills in sources, dumps and hooks.", milestone="2"
-    ),
-    Field("with", "any-map", "Parameters for the recipe.", milestone="2"),
+    Field("recipe", "str", "Name of a recipe that fills in sources, dumps and hooks."),
+    Field("with", "any-map", "Parameters for the recipe."),
     Field(
         "sources",
         "list[map]",
@@ -146,7 +142,6 @@ TARGET_SCHEMA: Schema = (
         "dumps",
         "list[map]",
         "Database dumps.",
-        milestone="2",
         fields=(
             Field("name", "str", "File name inside `dumps/`.", required=True, name_pattern=True),
             Field(
@@ -159,6 +154,13 @@ TARGET_SCHEMA: Schema = (
             Field("container", "str", "Docker container running the database."),
             Field("database", "str", "Database name; `*` dumps all (postgres)."),
             Field("user", "str", "Database user."),
+            Field(
+                "password_env",
+                "str",
+                "Name of an environment variable (inside the container, or on the host) "
+                "that holds the database password. The password itself never goes into "
+                "the config.",
+            ),
             Field("run", "str", "Command whose stdout is the dump (type: command)."),
             Field("ext", "str", "File extension for type: command.", default="dump"),
             Field(
@@ -187,7 +189,6 @@ TARGET_SCHEMA: Schema = (
         "hooks",
         "map",
         "Commands run on the host.",
-        milestone="2",
         fields=(
             Field("pre", "list[str]", "Before dumps and transfer. A failure aborts the target."),
             Field("post", "list[str]", "After a successful run."),

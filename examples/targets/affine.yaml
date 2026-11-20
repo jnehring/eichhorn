@@ -1,0 +1,8 @@
+# AFFiNE on the web server.
+host: web1
+sudo: true
+recipe: affine
+with:
+  compose_dir: /srv/affine
+  upload_location: /srv/affine/storage
+  config_location: /srv/affine/config

@@ -1,0 +1,15 @@
+description: Caddy reverse proxy (docker compose). Caddyfile and compose file; optionally the certificates.
+params:
+  compose_dir:
+    required: true
+    doc: Folder with Caddy's docker-compose.yml and Caddyfile
+  data_dir:
+    doc: Caddy's /data folder on the host (certificates; Caddy can also fetch them again)
+target:
+  description: Caddy
+  sources:
+    - name: compose
+      path: ${compose_dir}
+    - name: data
+      path: ${data_dir}
+      when: data_dir

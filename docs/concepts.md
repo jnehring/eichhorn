@@ -15,8 +15,9 @@ You can have several repositories, for example two drives that you swap every mo
 ## Target
 
 A **target** is one thing to back up, described by its own file
-`targets/<name>.yaml`: a few folders on this computer, or (from milestone 2) an app on a
-server with its folders, database dumps and hooks.
+`targets/<name>.yaml`: a few folders on this computer, or an app on a server with its
+folders, [database dumps and hooks](dumps-and-hooks.md). For known apps a
+[recipe](recipes/README.md) fills this in.
 
 ## Snapshot
 
@@ -50,9 +51,11 @@ layout.
 
 ## Engines
 
-The **builtin** engine is pure Python and works everywhere. From milestone 2 an
-**rsync** engine is used automatically where it is faster (large files that change in
-place, on Linux and macOS servers).
+The **builtin** engine is pure Python and works everywhere; over SSH it streams many small
+files in one `tar` stream and fetches large files one by one, so that they can resume. The
+**rsync** engine sends only the changed parts of large files; it is used automatically when
+rsync 3.1+ is available on both sides and the repository has hardlinks. See
+[Servers over SSH](hosts-and-ssh.md#engines).
 
 ## Change detection
 

@@ -1,0 +1,33 @@
+description: A self-written app in docker compose with one Postgres database and optional data folders.
+params:
+  compose_dir:
+    required: true
+    doc: Folder with the app's docker-compose.yml and .env
+  db_container:
+    required: true
+    doc: Name of the Postgres container
+  db_name:
+    required: true
+    doc: Database name
+  db_user:
+    default: postgres
+    doc: Database user
+  db_password_env:
+    doc: Environment variable in the container that holds the password, if needed
+  data_dirs:
+    default: []
+    doc: Further folders to back up (uploads, …); each becomes data-1, data-2, …
+target:
+  sources:
+    - name: compose
+      path: ${compose_dir}
+    - foreach: data_dirs
+      name: data-${index}
+      path: ${item}
+  dumps:
+    - name: ${db_name}
+      type: postgres
+      container: ${db_container}
+      database: ${db_name}
+      user: ${db_user}
+      password_env: ${db_password_env}

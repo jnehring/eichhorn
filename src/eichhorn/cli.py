@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from eichhorn import __version__, cache, repository
+from eichhorn import __version__, cache, recipes, repository
 from eichhorn import output as o
 from eichhorn.awake import KeepAwake
 from eichhorn.config import (
@@ -29,6 +29,7 @@ from eichhorn.paths import config_dir
 from eichhorn.run import RunOptions, check_supported, run_target
 from eichhorn.stores.localfs import LocalRepository
 from eichhorn.summary import changes_line, format_summary, totals
+from eichhorn.yamlload import dump
 
 
 def _print_json(data: Any) -> None:
@@ -198,9 +199,38 @@ def cmd_target_list(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _recipe_template(name: str, recipe_name: str, cdir: Path) -> str:
+    recipe = recipes.load(recipe_name, cdir)
+    lines = [
+        f'# Eichhorn target "{name}" from the recipe "{recipe_name}".',
+        f"# {recipe.description}",
+        "# Reference: docs/recipes/" + recipe_name + ".md",
+        "",
+        "# The server (an alias from ~/.ssh/config or user@host), or local",
+        "host: my-server",
+        "sudo: true",
+        "",
+        f"recipe: {recipe_name}",
+        "with:",
+    ]
+    for p in recipe.params.values():
+        lines.append(f"  # {p.doc}")
+        if p.required:
+            lines.append(f"  {p.name}: ''   # required")
+        elif p.default is None:
+            lines.append(f"  # {p.name}: ")
+        else:
+            lines.append(f"  # {p.name}: {dump(p.default).strip().replace(chr(10), ' ')}")
+    lines += [
+        "",
+        "# You can add your own sources, dumps and hooks here; a source with the same",
+        "# name as one from the recipe replaces it. See the result with:",
+        f"#   eichhorn target show {name} --expanded",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def cmd_target_new(args: argparse.Namespace) -> int:
-    if args.recipe:
-        raise EichhornError("recipes arrive in milestone 2")
     from eichhorn.schema import NAME_RE
 
     if not NAME_RE.match(args.name):
@@ -209,8 +239,15 @@ def cmd_target_new(args: argparse.Namespace) -> int:
     f = cdir / TARGETS_DIR / f"{args.name}.yaml"
     if f.exists():
         raise EichhornError(f"{f} already exists")
+    if args.recipe:
+        try:
+            text = _recipe_template(args.name, args.recipe, cdir)
+        except KeyError as exc:
+            raise EichhornError(exc.args[0]) from None
+    else:
+        text = TARGET_TEMPLATE.format(name=args.name)
     f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(TARGET_TEMPLATE.format(name=args.name), encoding="utf-8")
+    f.write_text(text, encoding="utf-8")
     print(f"Created {f}\nEdit it, then check it with: eichhorn config check")
     return EXIT_OK
 
@@ -218,11 +255,88 @@ def cmd_target_new(args: argparse.Namespace) -> int:
 def cmd_target_show(args: argparse.Namespace) -> int:
     cfg = _cfg(args)
     t = cfg.target(args.name)
-    if args.expanded and t.recipe:
-        raise EichhornError("recipes arrive in milestone 2")
+    if args.expanded:
+        print(
+            o.dim(f"# {t.file}, with recipe {t.recipe!r} filled in" if t.recipe else f"# {t.file}")
+        )
+        clean = {k: v for k, v in t.expanded.items() if v is not None}
+        print(dump(clean).rstrip())
+        return EXIT_OK
     print(o.dim(f"# {t.file}"))
     print(t.file.read_text(encoding="utf-8").rstrip())
     return EXIT_OK
+
+
+def cmd_recipe_list(args: argparse.Namespace) -> int:
+    cdir: Path = args.config or config_dir()
+    data: list[dict[str, Any]] = []
+    for name in recipes.all_names(cdir):
+        r = recipes.load(name, cdir)
+        data.append(
+            {
+                "name": name,
+                "description": r.description,
+                "origin": r.origin,
+                "params": {
+                    p.name: {"required": p.required, "default": p.default, "doc": p.doc}
+                    for p in r.params.values()
+                },
+            }
+        )
+    if args.json:
+        _print_json(data)
+        return EXIT_OK
+    for item in data:
+        print(o.bold(item["name"]) + o.dim(f"  ({item['origin']})"))
+        print(f"  {item['description']}")
+        for pname, spec in item["params"].items():
+            req = (
+                o.yellow("required")
+                if spec["required"]
+                else (
+                    f"default: {spec['default']}"
+                    if spec["default"] not in (None, [])
+                    else "optional"
+                )
+            )
+            print(f"    {pname:<16} {req}  {o.dim(spec['doc'])}")
+        print()
+    return EXIT_OK
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    from eichhorn import doctor
+
+    cfg = _cfg(args)
+    names = args.targets or sorted(cfg.targets)
+    conn_repos = repository.connected(cfg)
+    caps = conn_repos[0].capabilities if conn_repos else None
+    failed = 0
+    report: dict[str, Any] = {"local": [], "targets": {}}
+    marks = {"ok": o.green("✓"), "warn": o.yellow("!"), "fail": o.red("✗")}
+    local = doctor.local_checks()
+    report["local"] = [c.__dict__ for c in local]
+    if not args.json:
+        print(o.bold("this computer"))
+        for c in local:
+            print(f"  {marks[c.state]} {c.name}: {c.detail}")
+    for name in names:
+        t = cfg.target(name)
+        try:
+            checks = doctor.check_target(t, caps)
+        except EichhornError as exc:
+            checks = [doctor.Check("connection", "fail", str(exc))]
+        report["targets"][name] = [c.__dict__ for c in checks]
+        failed += sum(c.state == "fail" for c in checks)
+        if not args.json:
+            print(o.bold(f"\n{name}") + o.dim(f"  ({t.host})"))
+            for c in checks:
+                print(f"  {marks[c.state]} {c.name}: {c.detail}")
+    if args.json:
+        _print_json(report)
+    elif caps is None:
+        print(o.dim("\n(no repository connected: the engine choice was not checked)"))
+    return EXIT_FAILED if failed else EXIT_OK
 
 
 def cmd_config_check(args: argparse.Namespace) -> int:
@@ -244,13 +358,13 @@ def _dry_run(cfg: Config, names: list[str], repo: LocalRepository) -> int:
     for name in names:
         t = cfg.target(name)
         check_supported(t)
-        conn = connect(t.host)
+        conn = connect(t.host, sudo=t.sudo, shell=t.shell)
         latest = repo.latest(name)
         prev_dir = repo.snapshot_dir(name, latest) if latest else None
         prev = Previous(prev_dir, load_index(prev_dir) if prev_dir else {})
         print(o.bold(f"{name} → {repo.name}") + o.dim("  (dry run, nothing is written)"))
         for s in t.sources:
-            listing = conn.list(s.path, Excludes(s.exclude))
+            listing = conn.listing(s.path, Excludes(s.exclude))
             new = changed = unchanged = 0
             nbytes = 0
             seen = set()
@@ -487,7 +601,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.set_defaults(func=cmd_target_list)
     r = tsub.add_parser("new", help="create a commented target file")
     r.add_argument("name")
-    r.add_argument("--recipe", help="start from a recipe (milestone 2)")
+    r.add_argument("--recipe", help="start from a recipe (see `eichhorn recipe list`)")
     r.set_defaults(func=cmd_target_new)
     r = tsub.add_parser("show", help="print a target's config")
     r.add_argument("name")
@@ -514,6 +628,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     r.add_argument("--no-prune", action="store_true", help="skip pruning (milestone 3)")
     r.set_defaults(func=cmd_run)
+
+    r = sub.add_parser("doctor", help="check targets' hosts, tools and databases")
+    r.add_argument("targets", nargs="*", metavar="TARGET", help="default: all targets")
+    r.set_defaults(func=cmd_doctor)
+
+    rec = sub.add_parser("recipe", help="recipes for known apps")
+    recsub = rec.add_subparsers(dest="recipe_command", metavar="ACTION", required=True)
+    r = recsub.add_parser("list", help="list recipes and their parameters")
+    r.set_defaults(func=cmd_recipe_list)
 
     r = sub.add_parser("status", help="last backup of each target in each repository")
     r.set_defaults(func=cmd_status)

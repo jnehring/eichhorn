@@ -14,9 +14,12 @@ from typing import Any
 
 from eichhorn import __version__, cache
 from eichhorn.config import Config, Target
-from eichhorn.connections import connect
+from eichhorn.connections import Connection, connect
+from eichhorn.dumps import DumpResult, run_dump
+from eichhorn.dumps import index_entry as dump_entry
 from eichhorn.engines import Previous, choose_engine
 from eichhorn.errors import EichhornError, NotYetSupported
+from eichhorn.hooks import HookResult, run_phase
 from eichhorn.index import (
     CHECKSUMS_NAME,
     INDEX_NAME,
@@ -62,18 +65,11 @@ def _iso(dt: datetime) -> str:
 
 def check_supported(target: Target) -> None:
     """Fail before anything is written if the target needs a later milestone."""
-    if not target.is_local:
-        raise NotYetSupported(
-            f"target {target.name!r}: SSH hosts arrive in milestone 2; only host: local works yet"
-        )
-    if target.dumps:
-        raise NotYetSupported(f"target {target.name!r}: dumps arrive in milestone 2")
-    if any(target.hooks.values()):
-        raise NotYetSupported(f"target {target.name!r}: hooks arrive in milestone 2")
-    if target.recipe:
-        raise NotYetSupported(f"target {target.name!r}: recipes arrive in milestone 2")
-    if target.sudo:
-        raise NotYetSupported(f"target {target.name!r}: sudo arrives in milestone 2")
+    for d in target.dumps:
+        if d.get("delta"):
+            raise NotYetSupported(
+                f"target {target.name!r}: delta dumps arrive in milestone 5; remove 'delta'"
+            )
 
 
 def _pick_incomplete(
@@ -103,14 +99,29 @@ def _pick_incomplete(
     return keep, notes
 
 
+def _post_always(conn: Connection, target: Target) -> list[HookResult]:
+    return run_phase(
+        conn, "post_always", target.hooks.get("post_always", []), target.sudo, stop_on_error=False
+    )
+
+
+def _failed_text(results: list[HookResult]) -> str:
+    return "; ".join(
+        f"{h.phase} hook {h.command!r} failed (exit {h.exit_code}): {h.output[-500:]}"
+        for h in results
+        if not h.ok
+    )
+
+
 def run_target(cfg: Config, target: Target, repo: LocalRepository, opts: RunOptions) -> RunResult:
     check_supported(target)
     t0 = time.monotonic()
     timings: dict[str, float] = {}
     caps = repo.capabilities
-    engine = choose_engine(target.engine, caps)
-    conn = connect(target.host)
+    conn = connect(target.host, sudo=target.sudo, shell=target.shell)
+    engine = choose_engine(target.engine, caps, conn)
     result = RunResult(target.name, repo.name, ok=False)
+    hooks: list[HookResult] = []
 
     with RepositoryLock(repo.root, f"{opts.command} {target.name}"):
         # ---- preflight ---------------------------------------------------
@@ -121,49 +132,101 @@ def run_target(cfg: Config, target: Target, repo: LocalRepository, opts: RunOpti
         for s in target.sources:
             if not conn.exists(s.path):
                 raise EichhornError(
-                    f"target {target.name!r}: source {s.name!r} not found: {s.path}"
+                    f"target {target.name!r}: source {s.name!r} not found on "
+                    f"{target.host}: {s.path}"
                 )
-        incomplete, notes = _pick_incomplete(repo, target.name, opts, cfg.defaults.resume_max_age)
-        warnings += notes
-        started = _now()
-        resumed = 0
-        if incomplete is not None:
-            snapshot = incomplete.name.removeprefix(INCOMPLETE_PREFIX)
-            try:
-                info = json.loads((incomplete / RESUME_FILE).read_text(encoding="utf-8"))
-                resumed = int(info.get("resumed", 0)) + 1
-                started = datetime.fromisoformat(info["started"])
-            except (OSError, ValueError, KeyError):
-                resumed = 1
-        else:
-            snapshot = started.strftime(TS_FORMAT)
-            while repo.snapshot_dir(target.name, snapshot).exists():
-                time.sleep(1)
-                started = _now()
-                snapshot = started.strftime(TS_FORMAT)
-            incomplete = repo.new_incomplete(target.name, snapshot)
-        write_atomic(
-            incomplete / RESUME_FILE,
-            json.dumps({"started": _iso(started), "resumed": resumed}),
-        )
-        latest = repo.latest(target.name)
-        prev_dir = repo.snapshot_dir(target.name, latest) if latest else None
-        prev = Previous(prev_dir, load_index(prev_dir) if prev_dir else {})
         timings["preflight"] = time.monotonic() - t0
 
-        # ---- transfer ----------------------------------------------------
+        # ---- pre hooks ---------------------------------------------------
         t = time.monotonic()
-        entries: list[Entry] = []
-        sources_manifest = []
+        pre = run_phase(conn, "pre", target.hooks.get("pre", []), target.sudo, stop_on_error=True)
+        hooks += pre
+        timings["hooks_pre"] = time.monotonic() - t
         status = "ok"
-        for s in target.sources:
-            src_entries, stats = engine.transfer(conn, s, incomplete, prev)
-            entries += src_entries
-            sources_manifest.append(stats.manifest())
-            warnings += [f"{s.name}: {w}" for w in stats.warnings]
-            if stats.status != "ok":
+        try:
+            if any(not h.ok for h in pre):
+                raise EichhornError(f"target {target.name!r}: {_failed_text(pre)}")
+
+            incomplete, notes = _pick_incomplete(
+                repo, target.name, opts, cfg.defaults.resume_max_age
+            )
+            warnings += notes
+            started = _now()
+            resumed = 0
+            if incomplete is not None:
+                snapshot = incomplete.name.removeprefix(INCOMPLETE_PREFIX)
+                try:
+                    info = json.loads((incomplete / RESUME_FILE).read_text(encoding="utf-8"))
+                    resumed = int(info.get("resumed", 0)) + 1
+                    started = datetime.fromisoformat(info["started"])
+                except (OSError, ValueError, KeyError):
+                    resumed = 1
+            else:
+                snapshot = started.strftime(TS_FORMAT)
+                while repo.snapshot_dir(target.name, snapshot).exists():
+                    time.sleep(1)
+                    started = _now()
+                    snapshot = started.strftime(TS_FORMAT)
+                incomplete = repo.new_incomplete(target.name, snapshot)
+            write_atomic(
+                incomplete / RESUME_FILE,
+                json.dumps({"started": _iso(started), "resumed": resumed}),
+            )
+            latest = repo.latest(target.name)
+            prev_dir = repo.snapshot_dir(target.name, latest) if latest else None
+            prev = Previous(prev_dir, load_index(prev_dir) if prev_dir else {})
+
+            # ---- dumps (always made again, also when resuming) ------------
+            t = time.monotonic()
+            entries: list[Entry] = []
+            dump_results: list[DumpResult] = []
+            dumps_dir = incomplete / "dumps"
+            if dumps_dir.exists():
+                shutil.rmtree(dumps_dir)
+            if target.dumps:
+                dumps_dir.mkdir()
+                entries.append(Entry("dumps", "dir"))
+            for d in target.dumps:
+                res = run_dump(conn, d, dumps_dir, target.sudo)
+                dump_results.append(res)
+                if res.status != "ok":
+                    status = "partial"
+                    warnings.append(f"dump {res.name} failed: {res.error}")
+                elif (e := dump_entry(res)) is not None:
+                    entries.append(e)
+            timings["dumps"] = time.monotonic() - t
+
+            # ---- transfer ------------------------------------------------
+            t = time.monotonic()
+            sources_manifest = []
+            for s in target.sources:
+                src_entries, stats = engine.transfer(conn, s, incomplete, prev)
+                entries += src_entries
+                sources_manifest.append(stats.manifest())
+                warnings += [f"{s.name}: {w}" for w in stats.warnings]
+                if stats.status != "ok":
+                    status = "partial"
+            timings["transfer"] = time.monotonic() - t
+
+            # ---- post hooks ----------------------------------------------
+            t = time.monotonic()
+            post = run_phase(
+                conn, "post", target.hooks.get("post", []), target.sudo, stop_on_error=False
+            )
+            hooks += post
+        except BaseException as exc:
+            always = _post_always(conn, target)
+            failed = _failed_text(always)
+            if failed and isinstance(exc, EichhornError):
+                raise EichhornError(f"{exc}; also: {failed}") from exc
+            raise
+        always = _post_always(conn, target)
+        hooks += always
+        for h in post + always:
+            if not h.ok:
                 status = "partial"
-        timings["transfer"] = time.monotonic() - t
+                warnings.append(_failed_text([h]))
+        timings["hooks_post"] = time.monotonic() - t
 
         # ---- checksums, index, manifest ----------------------------------
         t = time.monotonic()
@@ -175,8 +238,6 @@ def run_target(cfg: Config, target: Target, repo: LocalRepository, opts: RunOpti
 
         t = time.monotonic()
         finished = _now()
-        timings["finish"] = 0.0
-        timings["total"] = time.monotonic() - t0
         manifest: dict[str, Any] = {
             "format": 1,
             "target": target.name,
@@ -197,8 +258,8 @@ def run_target(cfg: Config, target: Target, repo: LocalRepository, opts: RunOpti
             "platform": sys.platform,
             "machine": platform.node(),
             "sources": sources_manifest,
-            "dumps": [],
-            "hooks": [],
+            "dumps": [d.manifest() for d in dump_results],
+            "hooks": [h.manifest() for h in hooks],
             "checksums": {
                 "file": CHECKSUMS_NAME if cfg.defaults.checksums else None,
                 "files": n_checksums,

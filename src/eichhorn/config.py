@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from eichhorn import schema
+from eichhorn import recipes, schema
 from eichhorn.errors import ConfigError
 from eichhorn.paths import config_dir
-from eichhorn.yamlload import Located, dump, load_file
+from eichhorn.yamlload import Located, dump, load_file, load_text
 
 GLOBAL_FILE = "eichhorn.yaml"
 REPOS_FILE = "repositories.yaml"  # written by `eichhorn repo init`
@@ -54,7 +55,9 @@ class Target:
     dumps: list[dict[str, Any]] = field(default_factory=list)
     hooks: dict[str, list[str]] = field(default_factory=dict)
     recipe: str | None = None
-    raw: dict[str, Any] = field(default_factory=dict)
+    shell: str | None = None
+    raw: dict[str, Any] = field(default_factory=dict)  # the file as written
+    expanded: dict[str, Any] = field(default_factory=dict)  # with the recipe filled in
 
     @property
     def is_local(self) -> bool:
@@ -106,23 +109,59 @@ def _parse_global(doc: Located | None) -> tuple[Defaults, list[RepositoryRef], s
     return defaults, repos, listen
 
 
-def _parse_target(name: str, doc: Located, defaults: Defaults) -> tuple[Target, list[str]]:
+ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _apply_recipe(doc: Located, cdir: Path) -> tuple[dict[str, Any], list[str]]:
+    """Fill in a target's recipe; returns the merged data and problems."""
     data: dict[str, Any] = doc.data or {}
+    name = data.get("recipe")
+    if not name:
+        return data, []
+    where = doc.where(("recipe",))
+    try:
+        recipe = recipes.load(name, cdir)
+    except KeyError as exc:
+        return data, [f"{where}: {exc.args[0]}"]
+    given = data.get("with") or {}
+    problems = [f"{doc.where(('with',))}: {p}" for p in recipes.check_params(recipe, given)]
+    if problems:
+        return data, problems
+    merged = recipes.merge(recipes.expand(recipe, given), data)
+    check = load_text(dump(merged), doc.file)
+    problems = [
+        f"{where}: after filling in recipe {name!r}: {p.split(': ', 1)[-1]}"
+        for p in schema.validate(check, schema.TARGET_SCHEMA)
+    ]
+    return merged, problems
+
+
+def _parse_target(
+    name: str, doc: Located, defaults: Defaults, data: dict[str, Any]
+) -> tuple[Target, list[str]]:
     problems: list[str] = []
     sources = []
+    host = data.get("host", "local")
     for i, s in enumerate(data.get("sources") or []):
         excludes = list(s.get("exclude") or [])
         problems += [
             f"{doc.where(('sources', i, 'exclude'))}: {e}" for e in schema.check_excludes(excludes)
         ]
         path = s["path"]
-        host = data.get("host", "local")
         expanded = os.path.expanduser(path) if host == "local" else path
         if not (expanded.startswith("/") or Path(expanded).is_absolute()):
             problems.append(f"{doc.where(('sources', i, 'path'))}: path must be absolute: {path}")
         sources.append(Source(s["name"], expanded, excludes))
-    if not sources and not data.get("dumps") and not data.get("recipe"):
-        problems.append(f"{doc.file}: a target needs at least one source, dump or recipe")
+    for i, d in enumerate(data.get("dumps") or []):
+        where = doc.where(("dumps", i))
+        if d["type"] == "command" and not d.get("run"):
+            problems.append(f"{where}: a dump of type command needs 'run'")
+        if d["type"] == "postgres" and not d.get("database"):
+            problems.append(f"{where}: a postgres dump needs 'database' ('*' for all)")
+        if d.get("password_env") and not ENV_NAME_RE.match(d["password_env"]):
+            problems.append(f"{where}: password_env must be a variable name such as DB_PASSWORD")
+    if not sources and not data.get("dumps"):
+        problems.append(f"{doc.file}: a target needs at least one source or dump")
     target = Target(
         name=name,
         file=doc.file,
@@ -135,8 +174,10 @@ def _parse_target(name: str, doc: Located, defaults: Defaults) -> tuple[Target, 
         sources=sources,
         dumps=list(data.get("dumps") or []),
         hooks={k: list(v or []) for k, v in (data.get("hooks") or {}).items()},
-        recipe=data.get("recipe"),
-        raw=data,
+        recipe=(doc.data or {}).get("recipe"),
+        shell=data.get("shell"),
+        raw=doc.data or {},
+        expanded=data,
     )
     return target, problems
 
@@ -184,7 +225,11 @@ def load_config(directory: Path | None = None, strict: bool = True) -> tuple[Con
         if tproblems:
             problems += tproblems
             continue
-        target, more = _parse_target(name, doc, defaults)
+        data, more = _apply_recipe(doc, cdir)
+        if more:
+            problems += more
+            continue
+        target, more = _parse_target(name, doc, defaults, data)
         problems += more
         for rname in target.repositories or []:
             if rname not in names:
