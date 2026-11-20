@@ -44,6 +44,12 @@ destination is a new class, not a rewrite.
 | `run.py` | the backup run workflow |
 | `summary.py`, `output.py` | run summary and terminal formatting |
 | `lock.py`, `awake.py`, `cache.py` | repository lock, keep-awake, local status cache |
+| `content.py` | finding a file's content, also in older snapshots (sparse storage) |
+| `retention.py`, `prune.py`, `notes.py` | retention rules; pruning with forward moves and a journal; pins and labels |
+| `verify.py`, `restore.py`, `history.py` | integrity checks; restore locally or onto a host; diff, find, versions |
+| `replicate.py` | copying snapshots to further repositories and `repo sync` |
+| `stats.py` | statistics for `eichhorn stats` and the web interface |
+| `web/` | FastAPI app, Jinja2 templates, SVG charts, background jobs (each runs the CLI) |
 | `_docs.py` | generates `docs/cli.md` and `docs/configuration-reference.md` |
 
 ---

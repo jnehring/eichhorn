@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Config{% endblock %}
+{% block content %}
+<div class="row"><h1>Configuration</h1><span class="spacer"></span>
+  <form class="inline" method="post" action="/jobs/doctor">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Run doctor for all</button>
+  </form></div>
+<p class="muted">Read-only. Edit the files in <span class="mono">{{ config_dir }}</span>, then reload.</p>
+{% if problems %}
+<div class="notice"><strong>{{ problems|length }} problem(s):</strong>
+<ul>{% for p in problems %}<li class="mono">{{ p }}</li>{% endfor %}</ul></div>
+{% endif %}
+{% for it in items %}
+<h2>{{ it.name }}</h2>
+<div class="row">
+  <small class="mono">{{ it.file }}</small><span class="spacer"></span>
+  <form class="inline" method="post" action="/jobs/doctor">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="target" value="{{ it.name }}">
+    <button class="secondary">Doctor</button>
+  </form>
+</div>
+<pre>{{ it.text }}</pre>
+{% if it.expanded %}<details><summary>With the recipe filled in</summary><pre>{{ it.expanded }}</pre></details>{% endif %}
+{% endfor %}
+{% endblock %}

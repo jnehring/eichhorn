@@ -43,8 +43,44 @@ Eichhorn's config, logs or on the command line.
 ### Restoring a dump
 
 ```bash
-gunzip -c nextcloud.sql.gz | docker exec -i nextcloud-db psql -U nextcloud -d nextcloud
+eichhorn dump nextcloud latest nextcloud | ssh web1 docker exec -i nextcloud-db psql -U nextcloud -d nextcloud
 ```
+
+Without Eichhorn: `gunzip -c nextcloud.sql.gz | …`.
+
+### Delta dumps
+
+Large databases change only a little between runs, but every snapshot would store the whole
+dump again. With `delta`, most snapshots store only a **patch** against an earlier full
+dump:
+
+```yaml
+dumps:
+  - name: nextcloud
+    type: postgres
+    container: nextcloud-db
+    database: nextcloud
+    user: nextcloud
+    delta:
+      full_every: 10      # a new full dump at least every 10 runs
+      max_ratio: 0.5      # …or when a patch would be over half the size of a full dump
+      max_base_age: 90d   # …or when the full dump is older than this
+```
+
+| File in `dumps/` | Content |
+|---|---|
+| `nextcloud.base.sql.zst` | the full dump (zstd). In snapshots with a patch it is the full dump the patch refers to – a hardlink, so it takes no space. |
+| `nextcloud.patch.zst` | the patch (`zstd --patch-from`), only in snapshots that store one |
+
+A patch always refers directly to a full dump, never to another patch, and every snapshot
+can be restored on its own. `eichhorn dump` and `eichhorn verify` rebuild the dump; by hand:
+
+```bash
+zstd -d nextcloud.base.sql.zst -o base.sql
+zstd -d --long=31 --patch-from=base.sql nextcloud.patch.zst -o nextcloud.sql
+```
+
+Dumps larger than 2 GiB are always stored in full (a limit of zstd's patch mode).
 
 ## Hooks
 

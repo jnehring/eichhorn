@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ job.title }}{% endblock %}
+{% block content %}
+<div class="row"><h1>{{ job.title }}</h1>
+  <span class="badge {{ job.state }}" data-job-state>{{ job.state }}</span></div>
+<p class="muted mono">eichhorn {{ job.args|join(' ') }}</p>
+<pre class="log" data-events="/jobs/{{ job.id }}/events"></pre>
+<p data-after-job hidden><a href="/">Back to the dashboard</a></p>
+{% endblock %}

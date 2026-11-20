@@ -167,7 +167,6 @@ TARGET_SCHEMA: Schema = (
                 "delta",
                 "map",
                 "Store as a patch against a full dump.",
-                milestone="5",
                 fields=(
                     Field(
                         "full_every", "int", "A new full dump at least every N runs.", default=10

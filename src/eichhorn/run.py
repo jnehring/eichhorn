@@ -12,13 +12,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from eichhorn import __version__, cache
+from eichhorn import __version__, cache, prune
 from eichhorn.config import Config, Target
 from eichhorn.connections import Connection, connect
-from eichhorn.dumps import DumpResult, run_dump
-from eichhorn.dumps import index_entry as dump_entry
+from eichhorn.content import Resolver
+from eichhorn.dumps import DeltaBase, DumpResult, delta_names, run_dump
 from eichhorn.engines import Previous, choose_engine
-from eichhorn.errors import EichhornError, NotYetSupported
+from eichhorn.errors import EichhornError
 from eichhorn.hooks import HookResult, run_phase
 from eichhorn.index import (
     CHECKSUMS_NAME,
@@ -64,12 +64,37 @@ def _iso(dt: datetime) -> str:
 
 
 def check_supported(target: Target) -> None:
-    """Fail before anything is written if the target needs a later milestone."""
-    for d in target.dumps:
-        if d.get("delta"):
-            raise NotYetSupported(
-                f"target {target.name!r}: delta dumps arrive in milestone 5; remove 'delta'"
-            )
+    """Fail before anything is written if the target needs something not built yet."""
+    return None
+
+
+def _delta_base(
+    repo: LocalRepository, target: str, latest: str | None, prev: Previous, dump: dict[str, Any]
+) -> DeltaBase | None:
+    """The full dump of an earlier snapshot that this run's patch may refer to."""
+    if not latest or not dump.get("delta"):
+        return None
+    try:
+        prev_dumps = {d["name"]: d for d in repo.manifest(target, latest).get("dumps", [])}
+    except EichhornError:
+        return None
+    info = (prev_dumps.get(dump["name"]) or {}).get("delta")
+    if not info:
+        return None
+    entry = prev.index.get(info["base_file"])
+    if entry is None or entry.p != f"dumps/{delta_names(dump)[0]}":
+        return None
+    try:
+        paths = Resolver(repo, target).locate(latest, entry)
+    except EichhornError:
+        return None
+    return DeltaBase(
+        info["base_snapshot"],
+        paths,
+        entry,
+        int(info["runs_since_full"]),
+        int(info.get("base_raw_bytes", 0)),
+    )
 
 
 def _pick_incomplete(
@@ -126,6 +151,8 @@ def run_target(cfg: Config, target: Target, repo: LocalRepository, opts: RunOpti
     with RepositoryLock(repo.root, f"{opts.command} {target.name}"):
         # ---- preflight ---------------------------------------------------
         warnings: list[str] = []
+        if prune.recover(repo, target.name):
+            warnings.append("finished an interrupted prune")
         free_before = repo.free_bytes()
         if free_before < 0.1 * repo.total_bytes():
             warnings.append(f"less than 10 % free on {repo.name}")
@@ -187,13 +214,14 @@ def run_target(cfg: Config, target: Target, repo: LocalRepository, opts: RunOpti
                 dumps_dir.mkdir()
                 entries.append(Entry("dumps", "dir"))
             for d in target.dumps:
-                res = run_dump(conn, d, dumps_dir, target.sudo)
+                base = _delta_base(repo, target.name, latest, prev, d)
+                res = run_dump(conn, d, dumps_dir, target.sudo, snapshot, caps.hardlinks, base)
                 dump_results.append(res)
                 if res.status != "ok":
                     status = "partial"
                     warnings.append(f"dump {res.name} failed: {res.error}")
-                elif (e := dump_entry(res)) is not None:
-                    entries.append(e)
+                else:
+                    entries += res.entries
             timings["dumps"] = time.monotonic() - t
 
             # ---- transfer ------------------------------------------------

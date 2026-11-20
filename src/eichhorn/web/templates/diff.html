@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Diff{% endblock %}
+{% block content %}
+<p class="muted"><a href="/">Dashboard</a> / <a href="/t/{{ target|urlq }}?repo={{ repo|urlq }}">{{ target }}</a> /</p>
+<h1>Changes from <span class="mono">{{ d['from']|snapdate }}</span> to <span class="mono">{{ d.to|snapdate }}</span></h1>
+<p class="muted">{{ d.added|length }} added, {{ d.changed|length }} changed, {{ d.removed|length }} removed</p>
+<table>
+  {% for x in d.added %}<tr><td class="add mono">+ {{ x.path }}</td><td class="num">{{ x.size|size }}</td></tr>{% endfor %}
+  {% for x in d.changed %}<tr><td class="chg mono">~ {{ x.path }}</td><td class="num">{{ x.old_size|size }} → {{ x.new_size|size }}</td></tr>{% endfor %}
+  {% for x in d.removed %}<tr><td class="del mono">− {{ x.path }}</td><td class="num">{{ x.size|size }}</td></tr>{% endfor %}
+</table>
+{% endblock %}

@@ -100,6 +100,18 @@ The built-in recipes are described in [Recipes](recipes/README.md). Your own rec
 `<config>/recipes/<name>.yaml`, in the same format as the
 [built-in ones](../src/eichhorn/recipes/).
 
+## Retention
+
+How many snapshots to keep is set per target or in `defaults`:
+
+```yaml
+retention:
+  keep_last: 6
+  keep_monthly: 12
+```
+
+See [History](history.md#retention).
+
 ## Exclude patterns
 
 | Pattern | Matches |

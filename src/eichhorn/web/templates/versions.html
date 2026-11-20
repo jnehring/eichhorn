@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Versions{% endblock %}
+{% block content %}
+<p class="muted"><a href="/">Dashboard</a> / <a href="/t/{{ target|urlq }}?repo={{ repo|urlq }}">{{ target }}</a> /</p>
+<h1>Versions of <span class="mono">{{ p }}</span></h1>
+<table>
+  <tr><th>Version</th><th class="num">Size</th><th>In snapshots</th><th></th></tr>
+  {% for v in versions %}
+  <tr><td>{{ loop.index }}</td><td class="num">{{ v.size|size }}</td>
+      <td class="mono">{{ v.snapshots[0]|snapdate }}{% if v.snapshots|length > 1 %} … {{ v.snapshots[-1]|snapdate }} <small>({{ v.snapshots|length }})</small>{% endif %}</td>
+      <td><a href="/t/{{ target|urlq }}/{{ repo|urlq }}/{{ v.snapshots[-1] }}/download?p={{ p|urlq }}">download</a></td></tr>
+  {% else %}<tr><td colspan="4" class="muted">This file is in no snapshot.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

@@ -145,7 +145,8 @@ class LocalRepository:
         if dst.exists():
             raise RepositoryError(f"snapshot {dst} already exists")
         replace_with_retry(incomplete, dst)
-        write_atomic(self.target_dir(target) / "latest", snapshot + "\n")
+        newest = self.snapshots(target)[-1]  # repo sync may insert an older snapshot
+        write_atomic(self.target_dir(target) / "latest", newest + "\n")
         return dst
 
     def free_bytes(self) -> int:

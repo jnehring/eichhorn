@@ -1,0 +1,13 @@
+<form class="inline" method="post" action="/jobs/run">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="target" value="{{ run_target }}">
+  {% if repos|length > 1 %}
+  <select name="repo" aria-label="Repository">
+    {% for r in repos %}<option value="{{ r.name }}">{{ r.name }}</option>{% endfor %}
+    <option value="__all__">all connected</option>
+  </select>
+  {% endif %}
+  <input name="label" placeholder="label (optional)" size="16">
+  <label class="check"><input type="checkbox" name="pin" value="1"> pin</label>
+  <button {% if not repos %}disabled title="no backup drive connected"{% endif %}>Back up now</button>
+</form>

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{{ target }} files{% endblock %}
+{% block content %}
+<p class="muted"><a href="/">Dashboard</a> / <a href="/t/{{ target|urlq }}?repo={{ repo|urlq }}">{{ target }}</a> /
+  <a href="/t/{{ target|urlq }}/{{ repo|urlq }}/{{ snap }}">{{ snap|snapdate }}</a> /</p>
+<div class="row">
+  <h1>Files as of <span class="mono">{{ snap|snapdate }}</span></h1>
+  <span class="spacer"></span>
+  <select data-nav aria-label="Snapshot">
+    {% for s in snapshots|reverse %}<option value="/t/{{ target|urlq }}/{{ repo|urlq }}/{{ s }}/browse?path={{ path|urlq }}" {% if s == snap %}selected{% endif %}>{{ s|snapdate }}</option>{% endfor %}
+  </select>
+</div>
+<div class="row" style="margin:12px 0">
+  <span class="crumbs">{% for name, p in crumbs %}<a href="?path={{ p|urlq }}">{{ name }}</a>{% if not loop.last %} / {% endif %}{% endfor %}</span>
+  <span class="spacer"></span>
+  <form class="inline" method="get">
+    <input type="hidden" name="path" value="{{ path }}">
+    <input name="q" value="{{ q }}" placeholder="search by name" aria-label="search">
+    <button class="secondary">Search</button>
+  </form>
+  <a href="/t/{{ target|urlq }}/{{ repo|urlq }}/{{ snap }}/download?p={{ path|urlq }}"><button class="secondary">Download folder (.zip)</button></a>
+</div>
+{% if q %}<p class="muted">{{ items|length }} result(s) for “{{ q }}”{% if items|length >= 300 %} (first 300){% endif %}</p>{% endif %}
+<div class="scroll"><table>
+  <tr><th>Name</th><th class="num">Size</th><th>Modified</th><th></th></tr>
+  {% for it in items %}
+  {% set e = it.e %}
+  <tr>
+    <td class="mono">
+      {% if e.type == 'dir' %}📁 <a href="?path={{ e.p|urlq }}">{{ it.name if not q else e.p }}</a>
+      {% elif e.type == 'symlink' %}🔗 {{ it.name if not q else e.p }} <small>→ {{ e.target }}</small>
+      {% else %}📄 {{ it.name if not q else e.p }}{% endif %}
+      {% if it.stored_in %}<small class="pill" title="This file did not change; its content is stored in an older snapshot.">stored in {{ it.stored_in }}</small>{% endif %}
+    </td>
+    <td class="num">{% if e.type == 'file' %}{{ e.size|size }}{% endif %}</td>
+    <td><small>{{ e.mtime_ns|ns }}</small></td>
+    <td>{% if e.type == 'file' %}
+      <a href="/t/{{ target|urlq }}/{{ repo|urlq }}/{{ snap }}/download?p={{ e.p|urlq }}">download</a> ·
+      <a href="/t/{{ target|urlq }}/{{ repo|urlq }}/{{ snap }}/versions?p={{ e.p|urlq }}">versions</a>
+    {% elif e.type == 'dir' %}<a href="/t/{{ target|urlq }}/{{ repo|urlq }}/{{ snap }}/download?p={{ e.p|urlq }}">zip</a>{% endif %}</td>
+  </tr>
+  {% else %}<tr><td colspan="4" class="muted">empty</td></tr>
+  {% endfor %}
+</table></div>
+{% endblock %}

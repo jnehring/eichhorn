@@ -13,8 +13,8 @@ Eichhorn did not find any registered drive. Check:
 
 ## "several repositories are connected … choose one with --repo"
 
-Two backup drives are plugged in. Name the one to use: `eichhorn run docs --repo Backup-A`.
-Writing to both in one run comes with milestone 4.
+Two backup drives are plugged in. Name the one to use (`--repo Backup-A`), or write to all
+of them (`--all-repos`). In a terminal, Eichhorn asks.
 
 ## "repository … is locked"
 
@@ -32,8 +32,9 @@ A run was interrupted. The next `eichhorn run` continues it. To start over inste
 
 ## "less than 10 % free"
 
-The drive is getting full. Pruning old snapshots comes with milestone 3; until then,
-delete the oldest snapshot folders by hand (never the newest).
+The drive is getting full. Add [retention rules](history.md#retention) and run
+`eichhorn prune`. `eichhorn stats` shows which target uses how much space. Do not delete
+snapshot folders by hand on exFAT drives: newer snapshots may need files from them.
 
 ## "cannot connect to web1"
 

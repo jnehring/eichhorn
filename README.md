@@ -11,9 +11,9 @@ complete but only new data takes space.
 ![Eichhorn architecture](https://raw.githubusercontent.com/jnehring/eichhorn/main/docs/architecture.png)
 
 > [!WARNING]
-> Eichhorn is in early development. Local folders, servers over SSH, database dumps,
-> hooks and recipes work. Pruning, restore and the web interface are coming. See the
-> [roadmap](#roadmap).
+> Eichhorn is new and has not been released yet. All features of the
+> [specification](https://github.com/jnehring/eichhorn/blob/main/docs/design/spec.md) are
+> built and tested, but it has seen little real-world use so far.
 
 ## Quick start
 
@@ -74,6 +74,12 @@ eichhorn/targets/documents/snapshots/2026-11-20T14-30-05/files/documents/…
 - **Recipes** for Immich, Nextcloud, AFFiNE, Postgres apps, Caddy and static sites.
 - **Two engines:** pure-Python everywhere, or rsync with delta transfer.
 - **Run summary** after each backup: new, changed and deleted files, time and space used.
+- **Restore** files, folders or whole snapshots – locally or straight back onto a server.
+- **Verify** with stored checksums; find bit rot and name a good copy.
+- **Retention** (last / daily / weekly / monthly / yearly), **pins and labels**.
+- **Several drives**: back up to all of them in one run, or let them catch up with `repo sync`.
+- **Delta dumps**: large databases stored as small zstd patches.
+- **Web interface** (`eichhorn serve`): dashboard, point-in-time file browser, statistics.
 - **Keeps your computer awake** during long runs.
 
 ## Documentation
@@ -86,6 +92,8 @@ The full documentation is in [`docs/`](https://github.com/jnehring/eichhorn/tree
 - [Configuration](https://github.com/jnehring/eichhorn/blob/main/docs/configuration.md)
 - [Guide: backing up a Docker server](https://github.com/jnehring/eichhorn/blob/main/docs/guides/backup-docker-server.md)
 - [Recipes](https://github.com/jnehring/eichhorn/blob/main/docs/recipes/README.md)
+- [Restore and verify](https://github.com/jnehring/eichhorn/blob/main/docs/restore-and-verify.md)
+- [Web interface](https://github.com/jnehring/eichhorn/blob/main/docs/web-ui.md)
 - [Command reference](https://github.com/jnehring/eichhorn/blob/main/docs/cli.md)
 - [Getting data back without Eichhorn](https://github.com/jnehring/eichhorn/blob/main/docs/recovery-without-eichhorn.md)
 
@@ -95,11 +103,11 @@ The full documentation is in [`docs/`](https://github.com/jnehring/eichhorn/tree
 |---|---|---|
 | 1 | Core CLI: repositories, local folders, snapshots, summary | ✅ done |
 | 2 | SSH servers, rsync engine, database dumps, hooks, recipes (Immich, Nextcloud, …) | ✅ done |
-| 3 | Retention and pruning, pins, `diff`, `find`, `restore`, `verify` | planned |
-| 4 | Several drives per run, `repo sync` | planned |
-| 5 | Sparse-storage browsing and pruning, delta dumps | planned |
-| 6 | Web interface with point-in-time browser and statistics | planned |
-| 7 | Release 0.1.0 on PyPI | planned |
+| 3 | Retention and pruning, pins, `diff`, `find`, `restore`, `verify` | ✅ done |
+| 4 | Several drives per run, `repo sync` | ✅ done |
+| 5 | Sparse-storage browsing and pruning, delta dumps | ✅ done |
+| 6 | Web interface with point-in-time browser and statistics | ✅ done |
+| 7 | Release 0.1.0 on PyPI | prepared |
 
 The design is described in the [specification](https://github.com/jnehring/eichhorn/blob/main/docs/design/spec.md).
 

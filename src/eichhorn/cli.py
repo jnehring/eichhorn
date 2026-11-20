@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from eichhorn import __version__, cache, recipes, repository
+from eichhorn import notes as annotations_store
 from eichhorn import output as o
 from eichhorn.awake import KeepAwake
 from eichhorn.config import (
@@ -395,9 +396,11 @@ def _dry_run(cfg: Config, names: list[str], repo: LocalRepository) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    from eichhorn.content import Resolver
+    from eichhorn.lock import RepositoryLock
+    from eichhorn.replicate import copy_snapshot
+
     cfg = _cfg(args)
-    if args.all_repos or (args.repo and len(args.repo) > 1):
-        raise EichhornError("backing up to several repositories in one run arrives in milestone 4")
     names = sorted(cfg.targets) if args.all else args.targets
     if not names:
         raise EichhornError("name one or more targets, or use --all")
@@ -405,18 +408,24 @@ def cmd_run(args: argparse.Namespace) -> int:
     for t in targets:
         check_supported(t)
     failures = 0
-    results = []
+    results: list[dict[str, Any]] = []
+    interactive = sys.stdin.isatty() and not args.json
     with KeepAwake(enabled=cfg.defaults.keep_awake and not args.allow_sleep) as awake:
         if awake.note and not args.quiet:
             print(o.dim(awake.note))
         for t in targets:
-            repos = repository.choose(cfg, args.repo, t.repositories)
+            repos = repository.choose(cfg, args.repo, t.repositories, args.all_repos, interactive)
             repo = repos[0]
             if args.dry_run:
                 _dry_run(cfg, [t.name], repo)
                 continue
             if not args.quiet and not args.json:
-                print(o.dim(f"backing up {t.name} → {repo.name} …"), flush=True)
+                more = (
+                    f" (then copied to {', '.join(r.name for r in repos[1:])})"
+                    if (len(repos) > 1)
+                    else ""
+                )
+                print(o.dim(f"backing up {t.name} → {repo.name}{more} …"), flush=True)
             try:
                 res = run_target(
                     cfg,
@@ -434,14 +443,111 @@ def cmd_run(args: argparse.Namespace) -> int:
                 print(o.red(f"{t.name}: {exc}"), file=sys.stderr)
                 results.append({"target": t.name, "ok": False, "error": str(exc)})
                 continue
-            results.append({"target": t.name, "ok": res.ok, "manifest": res.manifest})
+            item: dict[str, Any] = {
+                "target": t.name,
+                "ok": res.ok,
+                "manifest": res.manifest,
+                "copies": [],
+            }
+            results.append(item)
             if not res.ok:
                 failures += 1
             if res.manifest and not args.json:
                 print(format_summary(res.manifest))
+            # further repositories get a local copy of the new snapshot (spec 5.6)
+            if res.manifest and len(repos) > 1:
+                resolver = Resolver(repo, t.name)
+                for other in repos[1:]:
+                    try:
+                        with RepositoryLock(other.root, f"eichhorn run {t.name} (copy)"):
+                            cr = copy_snapshot(resolver, res.manifest["snapshot"], other)
+                    except EichhornError as exc:
+                        failures += 1
+                        print(o.red(f"  copy to {other.name} failed: {exc}"), file=sys.stderr)
+                        item["copies"].append({"repository": other.name, "error": str(exc)})
+                        continue
+                    item["copies"].append(cr.as_dict())
+                    if not args.json and not args.quiet:
+                        print(
+                            f"  {'copied to'.ljust(10)} {other.name}: {cr.copied} file(s), "
+                            f"{o.size(cr.copied_bytes)} written, {cr.linked + cr.skipped_sparse}"
+                            f" unchanged ({o.duration(cr.duration_s)})"
+                        )
+            if res.manifest and not args.no_prune and any(t.retention.values()):
+                for r in repos:
+                    pr = _prune_one(r, t.name, t.retention, dry_run=False)
+                    if pr.delete and not args.json and not args.quiet:
+                        print(
+                            o.dim(
+                                f"  pruned {len(pr.delete)} old snapshot(s) in {r.name}: "
+                                f"{', '.join(pr.delete)}"
+                            )
+                        )
     if args.json:
         _print_json(results)
     return EXIT_FAILED if failures else EXIT_OK
+
+
+def cmd_repo_sync(args: argparse.Namespace) -> int:
+    from eichhorn.replicate import sync
+
+    cfg = _cfg(args)
+    a = _connected_repo(cfg, args.source)
+    b = _connected_repo(cfg, args.destination)
+    if a.id == b.id:
+        raise EichhornError("source and destination are the same repository")
+    pairs = [(a, b), (b, a)] if args.both else [(a, b)]
+    out: list[dict[str, Any]] = []
+    failed = 0
+    with KeepAwake(enabled=cfg.defaults.keep_awake and not args.allow_sleep):
+        for src, dst in pairs:
+            names = args.target or [
+                n
+                for n, t in sorted(cfg.targets.items())
+                if not t.repositories or (src.name in t.repositories and dst.name in t.repositories)
+            ]
+            names = [n for n in names if src.snapshots(n)]
+            try:
+                plans, copied = sync(src, dst, names, args.include_older, args.dry_run)
+            except EichhornError as exc:
+                failed += 1
+                print(o.red(f"{src.name} → {dst.name}: {exc}"), file=sys.stderr)
+                continue
+            out.append(
+                {
+                    "from": src.name,
+                    "to": dst.name,
+                    "plans": [p.__dict__ for p in plans],
+                    "copied": [c.as_dict() for c in copied],
+                }
+            )
+            if not args.json:
+                verb = "would copy" if args.dry_run else "copied"
+                print(o.bold(f"{src.name} → {dst.name}"))
+                for p in plans:
+                    line = f"  {p.target}: {verb} {len(p.copy)} snapshot(s)"
+                    if p.skipped_older:
+                        line += o.dim(
+                            f", {len(p.skipped_older)} older than {dst.name}'s oldest "
+                            "skipped (--include-older)"
+                        )
+                    print(line)
+                for c in copied:
+                    print(
+                        o.dim(
+                            f"    {c.snapshot}: {c.copied} file(s) written "
+                            f"({o.size(c.copied_bytes)}), {c.linked + c.skipped_sparse} "
+                            "unchanged"
+                        )
+                    )
+            if not args.dry_run and not args.no_prune:
+                for p in plans:
+                    t = cfg.targets.get(p.target)
+                    if t and p.copy and any(t.retention.values()):
+                        _prune_one(dst, p.target, t.retention, dry_run=False)
+    if args.json:
+        _print_json(out)
+    return EXIT_FAILED if failed else EXIT_OK
 
 
 # ---------------------------------------------------------------- status / snapshots
@@ -512,12 +618,14 @@ def cmd_snapshots(args: argparse.Namespace) -> int:
     data = []
     for repo in repos:
         rows = []
+        notes = annotations_store.load(repo, args.target)
         for snap in repo.snapshots(args.target):
             m = repo.manifest(args.target, snap)
             tt = totals(m)
-            data.append(m)
-            label = m.get("label") or ""
-            if m.get("pinned_at_creation"):
+            pinned, label_text, note = annotations_store.effective(m, notes)
+            data.append({**m, "pinned": pinned, "label": label_text, "note": note})
+            label = label_text or ""
+            if pinned:
                 label = "📌 " + label
             rows.append(
                 [
@@ -556,6 +664,364 @@ def cmd_snapshots(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+# ---------------------------------------------------------------- history (milestone 3)
+def _prune_one(repo: LocalRepository, target: str, rules: dict[str, int], dry_run: bool) -> Any:
+    from eichhorn.lock import RepositoryLock
+    from eichhorn.prune import prune_target
+
+    if dry_run:
+        return prune_target(repo, target, rules, dry_run=True)
+    with RepositoryLock(repo.root, f"eichhorn prune {target}"):
+        return prune_target(repo, target, rules)
+
+
+def _repos_for(cfg: Config, name: str | None) -> list[LocalRepository]:
+    repos = [_connected_repo(cfg, name)] if name else repository.connected(cfg)
+    if not repos:
+        raise RepositoryError("no repository is connected")
+    return repos
+
+
+def cmd_prune(args: argparse.Namespace) -> int:
+    cfg = _cfg(args)
+    names = args.targets or sorted(cfg.targets)
+    results = []
+    for repo in _repos_for(cfg, args.repo):
+        for name in names:
+            t = cfg.target(name)
+            if not repo.snapshots(name):
+                continue
+            if not any(t.retention.values()):
+                if not args.json:
+                    print(o.dim(f"{name} in {repo.name}: no retention rules, nothing to prune"))
+                continue
+            r = _prune_one(repo, name, t.retention, args.dry_run)
+            results.append(r.as_dict())
+            if args.json:
+                continue
+            head = "would delete" if args.dry_run else "deleted"
+            moved = f", moved {r.moved_files} file(s) forward" if r.moved_files else ""
+            print(
+                o.bold(f"{name} in {repo.name}") + f": keep {len(r.keep)}, "
+                f"{head} {len(r.delete)}{moved}"
+            )
+            for snap in sorted(set(r.keep) | set(r.delete)):
+                if snap in r.keep:
+                    print(f"  {o.green('keep')}    {snap}  {o.dim(', '.join(r.keep[snap]))}")
+                else:
+                    print(f"  {o.red('delete')}  {snap}")
+            if r.removed_abandoned:
+                print(o.dim(f"  {r.removed_abandoned} abandoned unfinished run(s) removed"))
+    if args.json:
+        _print_json(results)
+    return EXIT_OK
+
+
+def _resolver(cfg: Config, target: str, repo_name: str | None) -> Any:
+    from eichhorn.content import Resolver
+
+    cfg.target(target)
+    repos = _repos_for(cfg, repo_name)
+    with_snaps = [r for r in repos if r.snapshots(target)]
+    if not with_snaps:
+        raise EichhornError(f"{target} has no snapshots in the connected repositories")
+    if len(with_snaps) > 1 and not repo_name:
+        names = ", ".join(r.name for r in with_snaps)
+        raise RepositoryError(f"{target} is in several repositories ({names}); choose with --repo")
+    return Resolver(with_snaps[0], target)
+
+
+def cmd_pin(args: argparse.Namespace) -> int:
+    cfg = _cfg(args)
+    res = _resolver(cfg, args.target, args.repo)
+    snap = res.resolve_name(args.snapshot)
+    pinned = args.command == "pin"
+    annotations_store.set_pin(res.repo, args.target, snap, pinned, getattr(args, "note", None))
+    print(f"{'pinned' if pinned else 'unpinned'} {args.target} {snap} in {res.repo.name}")
+    return EXIT_OK
+
+
+def cmd_label(args: argparse.Namespace) -> int:
+    cfg = _cfg(args)
+    res = _resolver(cfg, args.target, args.repo)
+    snap = res.resolve_name(args.snapshot)
+    annotations_store.set_label(res.repo, args.target, snap, args.text)
+    print(f"label of {args.target} {snap}: {args.text or '(none)'}")
+    return EXIT_OK
+
+
+def cmd_diff(args: argparse.Namespace) -> int:
+    from eichhorn.history import diff
+
+    cfg = _cfg(args)
+    res = _resolver(cfg, args.target, args.repo)
+    snaps = res.snapshots
+    if args.snap_b:
+        a, b = res.resolve_name(args.snap_a), res.resolve_name(args.snap_b)
+    elif args.snap_a:
+        b = res.resolve_name(args.snap_a)
+        i = snaps.index(b)
+        if i == 0:
+            raise EichhornError(f"{b} is the first snapshot; nothing to compare with")
+        a = snaps[i - 1]
+    else:
+        if len(snaps) < 2:
+            raise EichhornError("diff needs at least two snapshots")
+        a, b = snaps[-2], snaps[-1]
+    d = diff(res, a, b)
+    if args.json:
+        _print_json(d)
+        return EXIT_OK
+    print(o.bold(f"{args.target}: {a} → {b}"))
+    for item in d["added"]:
+        print(o.green(f"  + {item['path']}") + o.dim(f"  {o.size(item['size'])}"))
+    for item in d["changed"]:
+        sizes = f"  {o.size(item['old_size'])} → {o.size(item['new_size'])}"
+        print(o.yellow(f"  ~ {item['path']}") + o.dim(sizes))
+    for item in d["removed"]:
+        print(o.red(f"  - {item['path']}") + o.dim(f"  {o.size(item['size'])}"))
+    print(
+        o.dim(
+            f"  {len(d['added'])} added, {len(d['changed'])} changed, {len(d['removed'])} removed"
+        )
+    )
+    return EXIT_OK
+
+
+def cmd_find(args: argparse.Namespace) -> int:
+    from eichhorn.history import find
+
+    cfg = _cfg(args)
+    res = _resolver(cfg, args.target, args.repo)
+    found = find(res, args.pattern)
+    if args.json:
+        _print_json(found)
+        return EXIT_OK
+    if not found:
+        print(f"nothing matches {args.pattern!r} in {args.target}")
+        return EXIT_FAILED
+    for item in found[: args.limit]:
+        print(o.bold(item["path"]))
+        for i, v in enumerate(item["versions"], start=1):
+            span = v["snapshots"][0]
+            if len(v["snapshots"]) > 1:
+                span += f" … {v['snapshots'][-1]}"
+            print(
+                f"  version {i}  {o.size(v['size']):>9}  {span}"
+                + o.dim(f"  ({len(v['snapshots'])} snapshot(s))")
+            )
+    if len(found) > args.limit:
+        print(o.dim(f"… {len(found) - args.limit} more; use --limit or a narrower pattern"))
+    return EXIT_OK
+
+
+def cmd_restore(args: argparse.Namespace) -> int:
+    from eichhorn.restore import parse_destination, restore_local, restore_remote, select
+
+    cfg = _cfg(args)
+    res = _resolver(cfg, args.target, args.repo)
+    snap = res.resolve_name(args.snapshot)
+    items = select(res.index(snap), args.path)
+    host, path = parse_destination(args.to)
+    if host:
+        result = restore_remote(res, snap, items, host, path, args.force, args.sudo)
+    else:
+        result = restore_local(res, snap, items, Path(path).expanduser(), args.force)
+    if args.json:
+        _print_json(result.as_dict())
+    else:
+        print(
+            f"restored {result.files} file(s), {result.dirs} folder(s), {result.symlinks} "
+            f"link(s), {o.size(result.bytes)} from {args.target} {snap} to {result.destination}"
+        )
+        for w in result.warnings:
+            print(o.yellow(f"  ! {w}"))
+    return EXIT_OK
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    from eichhorn.content import Resolver
+    from eichhorn.verify import against_source, verify, write_report
+
+    cfg = _cfg(args)
+    names = sorted(cfg.targets) if args.all else [args.target] if args.target else []
+    if not names:
+        raise EichhornError("name a target, or use --all")
+    failed = 0
+    reports = []
+    with KeepAwake(enabled=cfg.defaults.keep_awake and not args.allow_sleep):
+        for repo in _repos_for(cfg, args.repo):
+            for name in names:
+                cfg.target(name)
+                res = Resolver(repo, name)
+                if not res.snapshots:
+                    continue
+                if args.all_snapshots:
+                    snaps = list(res.snapshots)
+                else:
+                    snaps = [res.resolve_name(args.snapshot or "latest")]
+                rep = verify(res, snaps, sample=args.sample)
+                if args.against_source:
+                    rep.source = against_source(res, snaps[-1], cfg.target(name))
+                write_report(res, rep)
+                reports.append(rep.as_dict())
+                failed += not rep.ok
+                if not args.json:
+                    _print_verify(name, repo.name, snaps, rep)
+    if args.json:
+        _print_json(reports)
+    if not reports:
+        raise EichhornError("no snapshots to verify in the connected repositories")
+    return EXIT_FAILED if failed else EXIT_OK
+
+
+def _print_verify(name: str, repo_name: str, snaps: list[str], rep: Any) -> None:
+    state = o.green("ok") if rep.ok else o.red("PROBLEMS")
+    which = snaps[0] if len(snaps) == 1 else f"{len(snaps)} snapshots"
+    print(
+        f"{o.bold(name)} in {repo_name} ({which}): {state}  "
+        + o.dim(f"{rep.files} files, {o.size(rep.bytes)} read, {o.duration(rep.duration_s)}")
+    )
+    for c in rep.corrupted:
+        good = f"; good copy in {', '.join(c['good_copies_in'])}" if c["good_copies_in"] else ""
+        print(o.red(f"  corrupted  {c['path']} ({c['stored_in']}){good}"))
+    for m in rep.missing:
+        print(o.red(f"  missing    {m['path']} ({m['snapshot']})"))
+    for u in rep.unexpected:
+        print(o.yellow(f"  unexpected {u['path']} ({u['snapshot']})"))
+    if rep.source:
+        src = rep.source
+        print(
+            f"  against the source: {src['same']} same, {src['changed']} changed, "
+            f"{src['new']} new, {src['gone']} gone since the snapshot"
+        )
+        for d in src["differs"]:
+            print(o.red(f"  differs    {d['path']} (same size and time, other content)"))
+
+
+def cmd_dump(args: argparse.Namespace) -> int:
+    from eichhorn.dumps import rebuild
+
+    cfg = _cfg(args)
+    res = _resolver(cfg, args.target, args.repo)
+    snap = res.resolve_name(args.snapshot)
+    dumps = {d["name"]: d for d in res.repo.manifest(args.target, snap).get("dumps", [])}
+    if args.name not in dumps or dumps[args.name].get("status") != "ok":
+        known = ", ".join(n for n, d in dumps.items() if d.get("status") == "ok") or "none"
+        raise EichhornError(f"no dump {args.name!r} in {args.target} {snap} (dumps: {known})")
+    chunks = rebuild(res, snap, dumps[args.name])
+    if args.to and args.to != "-":
+        out = Path(args.to).expanduser()
+        if out.exists() and not args.force:
+            raise EichhornError(f"{out} exists; use --force to overwrite it")
+        size = 0
+        with open(out, "wb") as fh:
+            for chunk in chunks:
+                fh.write(chunk)
+                size += len(chunk)
+        if not args.quiet:
+            print(f"wrote {o.size(size)} to {out}", file=sys.stderr)
+    else:
+        for chunk in chunks:
+            sys.stdout.buffer.write(chunk)
+        sys.stdout.buffer.flush()
+    return EXIT_OK
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    from eichhorn.web import serve
+
+    cfg = _cfg(args, strict=False)
+    serve(args.config, args.listen or cfg.web_listen, open_browser=not args.no_browser)
+    return EXIT_OK
+
+
+def cmd_stats(args: argparse.Namespace) -> int:
+    from eichhorn.stats import repo_stats, snapshot_stats, target_series
+
+    cfg = _cfg(args)
+    if args.target and args.snapshot:
+        res = _resolver(cfg, args.target, args.repo)
+        st = snapshot_stats(res, res.resolve_name(args.snapshot))
+        if args.json:
+            _print_json(st)
+            return EXIT_OK
+        print(
+            o.bold(f"{st['target']} {st['snapshot']}")
+            + f"  {o.status_color(st['status'])}"
+            + o.dim(f"  in {st['repository']} ({st['storage']}, {st['engine']})")
+        )
+        speed = f"{o.size(st['speed_bps'])}/s" if st["speed_bps"] else "–"
+        rows = [
+            ["files", f"{st['files']} in {st['dirs']} folders"],
+            ["size", o.size(st["logical_bytes"])],
+            ["new data stored", o.size(st["stored_bytes"])],
+            ["pruning it frees", o.size(st["freed_by_pruning"])],
+            ["transferred", f"{o.size(st['transferred_bytes'])} at {speed}"],
+            ["changes", changes_line(st["changes"])],
+            ["total time", o.duration(st["timings"].get("total", 0))],
+        ]
+        for k, v in st["timings"].items():
+            if k != "total" and v:
+                rows.append([f"  {k}", o.duration(v)])
+        print(o.table(rows, ["", ""]))
+        if st["largest"]:
+            print(o.bold("\nlargest files"))
+            for f in st["largest"]:
+                print(f"  {o.size(f['size']):>9}  {f['path']}")
+        return EXIT_OK
+    if args.target:
+        res = _resolver(cfg, args.target, args.repo)
+        series = target_series(res.repo, args.target)
+        if args.json:
+            _print_json(series)
+            return EXIT_OK
+        rows = [
+            [
+                s["snapshot"],
+                o.status_color(s["status"]),
+                str(s["files"]),
+                o.size(s["logical_bytes"]),
+                o.size(s["stored_bytes"]),
+                o.size(s["transferred_bytes"]),
+                changes_line(s),
+                o.duration(s["duration_s"]),
+            ]
+            for s in series
+        ]
+        print(
+            o.table(
+                rows,
+                ["SNAPSHOT", "STATUS", "FILES", "SIZE", "STORED", "TRANSFERRED", "CHANGES", "TIME"],
+            )
+        )
+        return EXIT_OK
+    out = []
+    for repo in _repos_for(cfg, args.repo):
+        st = repo_stats(repo, cfg)
+        out.append(st)
+        if args.json:
+            continue
+        print(
+            o.bold(st["repository"])
+            + o.dim(f"  {st['path']}  ({st['filesystem']}, {st['storage']})")
+        )
+        print(
+            f"  used {o.size(st['used_bytes'])} of {o.size(st['total_bytes'])}, "
+            f"{o.size(st['free_bytes'])} free"
+        )
+        if st["full_in_days"]:
+            print(
+                f"  grows about {o.size(st['growth_per_day'])} per day; full in about "
+                f"{st['full_in_days']:.0f} days"
+            )
+        for t, used in sorted(st["used_by_targets"].items(), key=lambda x: -x[1]):
+            print(f"  {o.size(used):>9}  {t}  ({st['snapshots'][t]} snapshot(s))")
+    if args.json:
+        _print_json(out)
+    return EXIT_OK
+
+
 # ---------------------------------------------------------------- parser
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -590,6 +1056,19 @@ def build_parser() -> argparse.ArgumentParser:
     r = rsub.add_parser("scan", help="rebuild the local cache from a repository")
     r.add_argument("repo", nargs="?", help="repository name (default: all connected)")
     r.set_defaults(func=cmd_repo_scan)
+    r = rsub.add_parser("sync", help="copy missing snapshots from one repository to another")
+    r.add_argument("source", metavar="SRC")
+    r.add_argument("destination", metavar="DST")
+    r.add_argument("--target", action="append", metavar="T", help="only this target (repeatable)")
+    r.add_argument("--both", action="store_true", help="sync in both directions")
+    r.add_argument("--dry-run", action="store_true", help="only show what would be copied")
+    r.add_argument("--no-prune", action="store_true", help="do not prune the destination")
+    r.add_argument(
+        "--include-older",
+        action="store_true",
+        help="also copy snapshots older than the destination's oldest",
+    )
+    r.set_defaults(func=cmd_repo_sync)
     r = rsub.add_parser("unlock", help="remove a stale lock")
     r.add_argument("repo", help="repository name")
     r.add_argument("--force", action="store_true", help="also remove a lock that may be in use")
@@ -618,7 +1097,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--all", action="store_true", help="all targets")
     r.add_argument("--repo", action="append", metavar="NAME", help="repository to write to")
     r.add_argument(
-        "--all-repos", action="store_true", help="every connected repository (milestone 4)"
+        "--all-repos", action="store_true", help="every connected repository the target belongs to"
     )
     r.add_argument("--label", help="a note for the new snapshot")
     r.add_argument("--pin", action="store_true", help="never prune the new snapshot")
@@ -626,7 +1105,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument(
         "--restart", action="store_true", help="throw away an unfinished run instead of resuming it"
     )
-    r.add_argument("--no-prune", action="store_true", help="skip pruning (milestone 3)")
+    r.add_argument("--no-prune", action="store_true", help="do not prune after the run")
     r.set_defaults(func=cmd_run)
 
     r = sub.add_parser("doctor", help="check targets' hosts, tools and databases")
@@ -637,6 +1116,89 @@ def build_parser() -> argparse.ArgumentParser:
     recsub = rec.add_subparsers(dest="recipe_command", metavar="ACTION", required=True)
     r = recsub.add_parser("list", help="list recipes and their parameters")
     r.set_defaults(func=cmd_recipe_list)
+
+    r = sub.add_parser("prune", help="delete old snapshots according to the retention rules")
+    r.add_argument("targets", nargs="*", metavar="TARGET", help="default: all targets")
+    r.add_argument("--repo", metavar="NAME")
+    r.add_argument("--dry-run", action="store_true", help="only show what would be deleted")
+    r.set_defaults(func=cmd_prune)
+
+    for name, text in (("pin", "never prune a snapshot"), ("unpin", "allow pruning again")):
+        r = sub.add_parser(name, help=text)
+        r.add_argument("target")
+        r.add_argument("snapshot", help="snapshot name, a unique prefix of it, or latest")
+        r.add_argument("--repo", metavar="NAME")
+        if name == "pin":
+            r.add_argument("--note", help="why it is pinned")
+        r.set_defaults(func=cmd_pin)
+
+    r = sub.add_parser("label", help="set or remove a snapshot's label")
+    r.add_argument("target")
+    r.add_argument("snapshot", help="snapshot name, a unique prefix of it, or latest")
+    r.add_argument("text", help="the label; an empty text removes it")
+    r.add_argument("--repo", metavar="NAME")
+    r.set_defaults(func=cmd_label)
+
+    r = sub.add_parser("diff", help="what changed between two snapshots")
+    r.add_argument("target")
+    r.add_argument("snap_a", nargs="?", metavar="SNAP_A", help="default: the second newest")
+    r.add_argument("snap_b", nargs="?", metavar="SNAP_B", help="default: the newest")
+    r.add_argument("--repo", metavar="NAME")
+    r.set_defaults(func=cmd_diff)
+
+    r = sub.add_parser("find", help="find a file in all snapshots and show its versions")
+    r.add_argument("target")
+    r.add_argument("pattern", help="a name or glob, e.g. report.docx, '*.jpg', 'docs/*/a.txt'")
+    r.add_argument("--repo", metavar="NAME")
+    r.add_argument("--limit", type=int, default=50, help="show at most N files")
+    r.set_defaults(func=cmd_find)
+
+    r = sub.add_parser("restore", help="copy files out of a snapshot")
+    r.add_argument("target")
+    r.add_argument("snapshot", help="snapshot name, a unique prefix of it, or latest")
+    r.add_argument("path", nargs="?", help="file or folder in the snapshot (default: everything)")
+    r.add_argument(
+        "--to",
+        required=True,
+        metavar="DEST",
+        help="a local folder, or host:/path to restore onto a server",
+    )
+    r.add_argument("--force", action="store_true", help="overwrite existing files")
+    r.add_argument("--sudo", action="store_true", help="unpack with sudo on the server")
+    r.add_argument("--repo", metavar="NAME")
+    r.set_defaults(func=cmd_restore)
+
+    r = sub.add_parser("dump", help="write a database dump from a snapshot, uncompressed")
+    r.add_argument("target")
+    r.add_argument("snapshot", help="snapshot name, a unique prefix of it, or latest")
+    r.add_argument("name", help="the dump's name in the target config")
+    r.add_argument("--to", metavar="FILE", help="write to FILE (default: standard output)")
+    r.add_argument("--force", action="store_true", help="overwrite FILE")
+    r.add_argument("--repo", metavar="NAME")
+    r.set_defaults(func=cmd_dump)
+
+    r = sub.add_parser("verify", help="check snapshots against their checksums")
+    r.add_argument("target", nargs="?")
+    r.add_argument("snapshot", nargs="?", help="default: latest")
+    r.add_argument("--all", action="store_true", help="all targets")
+    r.add_argument("--all-snapshots", action="store_true", help="every snapshot")
+    r.add_argument("--sample", type=float, metavar="PCT", help="check a random PCT %% of files")
+    r.add_argument(
+        "--against-source", action="store_true", help="also compare the snapshot with the host"
+    )
+    r.add_argument("--repo", metavar="NAME")
+    r.set_defaults(func=cmd_verify)
+
+    r = sub.add_parser("stats", help="statistics of a repository, a target or a snapshot")
+    r.add_argument("target", nargs="?")
+    r.add_argument("snapshot", nargs="?")
+    r.add_argument("--repo", metavar="NAME")
+    r.set_defaults(func=cmd_stats)
+
+    r = sub.add_parser("serve", help="start the web interface")
+    r.add_argument("--listen", metavar="ADDR", help="address (default: 127.0.0.1:8765)")
+    r.add_argument("--no-browser", action="store_true", help="do not open a browser")
+    r.set_defaults(func=cmd_serve)
 
     r = sub.add_parser("status", help="last backup of each target in each repository")
     r.set_defaults(func=cmd_status)

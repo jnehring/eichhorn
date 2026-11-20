@@ -100,9 +100,13 @@ def connected(cfg: Config) -> list[LocalRepository]:
 
 
 def choose(
-    cfg: Config, names: list[str] | None, allowed: list[str] | None = None
+    cfg: Config,
+    names: list[str] | None,
+    allowed: list[str] | None = None,
+    all_repos: bool = False,
+    ask: bool = False,
 ) -> list[LocalRepository]:
-    """Repositories for a run: the named ones, or the single connected one."""
+    """Repositories for a run (spec 5.6): named ones, all connected ones, or the only one."""
     if names:
         out = []
         for n in names:
@@ -121,9 +125,20 @@ def choose(
                 "no repositories configured; create one with `eichhorn repo init PATH --name NAME`"
             )
         raise RepositoryError("no repository is connected; plug in a backup drive")
-    if len(conn) > 1:
-        names_text = ", ".join(r.name for r in conn)
-        raise RepositoryError(
-            f"several repositories are connected ({names_text}); choose one with --repo"
-        )
-    return conn
+    if all_repos or len(conn) == 1:
+        return conn
+    names_text = ", ".join(r.name for r in conn)
+    if ask:
+        print(f"Several repositories are connected: {names_text}")
+        for i, r in enumerate(conn, start=1):
+            print(f"  {i}) {r.name}  ({r.root})")
+        print("  a) all of them")
+        answer = input("Back up to which one? ").strip().lower()
+        if answer in ("a", "all"):
+            return conn
+        if answer.isdigit() and 1 <= int(answer) <= len(conn):
+            return [conn[int(answer) - 1]]
+        raise RepositoryError("no repository chosen")
+    raise RepositoryError(
+        f"several repositories are connected ({names_text}); choose with --repo or --all-repos"
+    )

@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}{{ target }} {{ snap }}{% endblock %}
+{% block content %}
+<p class="muted"><a href="/">Dashboard</a> / <a href="/t/{{ target|urlq }}?repo={{ repo|urlq }}">{{ target }}</a> /</p>
+<div class="row">
+  <h1 class="mono">{{ snap|snapdate }}</h1>
+  <span class="badge {{ st.status }}">{{ st.status }}</span>
+  {% if st.pinned %}<span class="badge">📌 pinned</span>{% endif %}
+  {% if st.label %}<span class="pill">{{ st.label }}</span>{% endif %}
+  <span class="spacer"></span>
+  <select data-nav aria-label="Other snapshot">
+    {% for s in snapshots|reverse %}<option value="/t/{{ target|urlq }}/{{ repo|urlq }}/{{ s }}" {% if s == snap %}selected{% endif %}>{{ s }}</option>{% endfor %}
+  </select>
+  <a href="/t/{{ target|urlq }}/{{ repo|urlq }}/{{ snap }}/browse"><button class="secondary">Browse files</button></a>
+</div>
+
+<div class="grid" style="margin-top:16px">
+  <div class="card">
+    <h3>Overview</h3>
+    <dl class="kv">
+      <dt>Repository</dt><dd>{{ repo }} ({{ st.storage }})</dd>
+      <dt>Host</dt><dd>{{ st.host }}</dd>
+      <dt>Engine</dt><dd>{{ st.engine }}</dd>
+      <dt>Started</dt><dd>{{ st.started }}</dd>
+      <dt>Finished</dt><dd>{{ st.finished }}</dd>
+      {% if st.resumed %}<dt>Resumed</dt><dd>{{ st.resumed }} time(s)</dd>{% endif %}
+      {% if st.copied_from %}<dt>Copied from</dt><dd class="mono">{{ st.copied_from }}</dd>{% endif %}
+      <dt>Eichhorn</dt><dd>{{ st.eichhorn_version }}</dd>
+      {% if st.note %}<dt>Note</dt><dd>{{ st.note }}</dd>{% endif %}
+    </dl>
+  </div>
+  <div class="card">
+    <h3>Size</h3>
+    <dl class="kv">
+      <dt>Files</dt><dd>{{ st.files }} in {{ st.dirs }} folders</dd>
+      <dt>Total size</dt><dd>{{ st.logical_bytes|size }}</dd>
+      <dt>New data stored</dt><dd>{{ st.stored_bytes|size }}</dd>
+      <dt>Pruning it frees</dt><dd>{{ st.freed_by_pruning|size }}</dd>
+    </dl>
+  </div>
+  <div class="card">
+    <h3>Transfer</h3>
+    <dl class="kv">
+      <dt>Transferred</dt><dd>{{ st.transferred_bytes|size }}</dd>
+      <dt>Average speed</dt><dd>{% if st.speed_bps %}{{ st.speed_bps|size }}/s{% else %}–{% endif %}</dd>
+      <dt>Total time</dt><dd>{{ st.timings.total|duration }}</dd>
+      <dt>Changes</dt><dd><span class="add">+{{ st.changes.new }}</span> <span class="chg">~{{ st.changes.changed }}</span> <span class="del">−{{ st.changes.deleted }}</span></dd>
+    </dl>
+  </div>
+  <div class="card">
+    <h3>Integrity</h3>
+    {% if st.verify %}
+      <p><span class="badge {{ 'ok' if st.verify.ok else 'problems' }}">{{ 'ok' if st.verify.ok else 'problems' }}</span>
+      <small>{{ st.verify.files }} files checked, {{ st.verify.finished }}</small></p>
+    {% else %}<p class="muted">Not verified yet.</p>{% endif %}
+    <form class="inline" method="post" action="/jobs/verify">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="target" value="{{ target }}">
+      <input type="hidden" name="repo" value="{{ repo }}">
+      <button class="secondary">Verify now</button>
+    </form>
+  </div>
+</div>
+
+<h2>Time per phase</h2>
+<div class="card">{{ chart_time|safe }}</div>
+
+<h2>Sources</h2>
+<div class="scroll"><table>
+  <tr><th>Source</th><th>Path</th><th class="num">Files</th><th class="num">Size</th><th class="num">Transferred</th>
+      <th class="num">Stored</th><th class="num">Time</th><th>Most changes</th></tr>
+  {% for s in st.sources %}
+  <tr><td>{{ s.name }}</td><td class="mono">{{ s.path }}</td><td class="num">{{ s.files }}</td>
+      <td class="num">{{ s.bytes|size }}</td><td class="num">{{ s.transferred_bytes|size }}</td>
+      <td class="num">{{ s.stored_bytes|size }}</td><td class="num">{{ s.duration_s|duration }}</td>
+      <td>{% for f in s.changes.top_folders %}<span class="mono">{{ f.folder }}</span> ({{ f.changes }}){% if not loop.last %}, {% endif %}{% endfor %}</td></tr>
+  {% endfor %}
+</table></div>
+
+{% if st.dumps %}
+<h2>Database dumps</h2>
+<table>
+  <tr><th>Dump</th><th>Status</th><th class="num">Stored</th><th class="num">Raw</th><th>Delta</th><th class="num">Time</th></tr>
+  {% for d in st.dumps %}
+  <tr><td>{{ d.name }}</td><td><span class="badge {{ 'ok' if d.status == 'ok' else 'failed' }}">{{ d.status }}</span></td>
+      <td class="num">{{ d.bytes|size }}</td><td class="num">{{ d.raw_bytes|size }}</td>
+      <td>{% if d.delta %}{{ d.delta.mode }}{% if d.delta.mode == 'patch' %} against {{ d.delta.base_snapshot }}{% endif %}{% else %}–{% endif %}</td>
+      <td class="num">{{ d.duration_s|duration }}</td></tr>
+  {% if d.error %}<tr><td colspan="6" class="del mono">{{ d.error }}</td></tr>{% endif %}
+  {% endfor %}
+</table>
+{% endif %}
+
+<h2>Largest files</h2>
+<table>
+  {% for f in st.largest %}<tr><td class="mono">{{ f.path }}</td><td class="num">{{ f.size|size }}</td></tr>{% endfor %}
+</table>
+
+{% if st.warnings %}
+<h2>Warnings</h2>
+<ul>{% for w in st.warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+{% endif %}
+
+<h2>Restore</h2>
+<form class="inline" method="post" action="/jobs/restore" data-confirm="Restore into this folder?">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="target" value="{{ target }}">
+  <input type="hidden" name="repo" value="{{ repo }}">
+  <input type="hidden" name="snapshot" value="{{ snap }}">
+  <input name="path" placeholder="path in the snapshot (empty: all)" size="30">
+  <input name="dest" placeholder="destination folder, e.g. ~/Restore" size="30" required>
+  <label class="check"><input type="checkbox" name="force" value="1"> overwrite</label>
+  <button>Restore</button>
+</form>
+{% endblock %}

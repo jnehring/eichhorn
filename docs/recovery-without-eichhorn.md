@@ -47,6 +47,16 @@ cat video.mp4.eichhorn-part-* > video.mp4                         # macOS, Linux
 copy /b video.mp4.eichhorn-part-001 + video.mp4.eichhorn-part-002 video.mp4
 ```
 
+## Database dumps
+
+`*.sql.gz` is a gzip-compressed SQL dump (`gunzip -c`). With delta dumps, a snapshot has
+`<name>.base.sql.zst` (a full dump) and maybe `<name>.patch.zst`:
+
+```bash
+zstd -d db.base.sql.zst -o base.sql                                  # the full dump
+zstd -d --long=31 --patch-from=base.sql db.patch.zst -o db.sql       # with the patch
+```
+
 ## Renamed files
 
 If a file name could not be stored on the drive (for example `a:b.txt` on NTFS), it is

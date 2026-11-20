@@ -46,8 +46,9 @@ layout.
 
 > [!NOTE]
 > On exFAT and FAT32, a snapshot folder looks incomplete in Finder or Explorer: it holds
-> only what changed. The first snapshot is complete. Browsing the full state of any
-> snapshot in the web interface comes with milestone 5/6.
+> only what changed. The first snapshot is complete. The [web interface](web-ui.md),
+> `restore` and `verify` always see the complete state; see
+> [exFAT and FAT32 drives](guides/exfat-drives.md).
 
 ## Engines
 

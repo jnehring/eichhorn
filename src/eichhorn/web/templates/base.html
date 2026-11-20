@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Eichhorn{% endblock %} · Eichhorn</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<header>
+  <a class="brand" href="/">🐿 Eichhorn</a>
+  <nav>
+    <a href="/">Dashboard</a>
+    <a href="/repos">Repositories</a>
+    <a href="/config">Config</a>
+  </nav>
+  <span class="drives">
+    {% if repos %}{% for r in repos %}<span class="pill">💾 {{ r.name }}</span> {% endfor %}
+    {% else %}no backup drive connected{% endif %}
+  </span>
+</header>
+<main>
+{% block content %}{% endblock %}
+{% if jobs %}
+<h2>Recent jobs</h2>
+<table>
+  {% for j in jobs %}
+  <tr><td><a href="/jobs/{{ j.id }}">{{ j.title }}</a></td>
+      <td><span class="badge {{ j.state }}">{{ j.state }}</span></td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+<p class="muted" style="margin-top:48px"><small>Eichhorn {{ version }}</small></p>
+</main>
+</body>
+</html>

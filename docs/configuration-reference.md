@@ -57,7 +57,7 @@ All keys of the configuration files, generated from the schema that Eichhorn use
 | `dumps[].password_env` | str |  | Name of an environment variable (inside the container, or on the host) that holds the database password. The password itself never goes into the config. |
 | `dumps[].run` | str |  | Command whose stdout is the dump (type: command). |
 | `dumps[].ext` | str | `dump` | File extension for type: command. |
-| `dumps[].delta` | map |  | Store as a patch against a full dump. *(Implemented in milestone 5.)* |
+| `dumps[].delta` | map |  | Store as a patch against a full dump. |
 | `dumps[].delta.full_every` | int | `10` | A new full dump at least every N runs. |
 | `dumps[].delta.max_ratio` | float | `0.5` | …or when a patch exceeds this share. |
 | `dumps[].delta.max_base_age` | duration | `90d` | …or when the full dump is older. |

@@ -143,17 +143,9 @@ def test_locked_repository_is_refused(setup: Setup, cli: Cli) -> None:
     assert snapshots(repo) == []
 
 
-def test_unknown_target_and_milestone_errors(setup: Setup, cli: Cli, tmp_path: Path) -> None:
+def test_unknown_target(setup: Setup, cli: Cli, tmp_path: Path) -> None:
     setup()
     assert cli("run", "nope") == 2
-    (tmp_path / "cfg/targets/remote.yaml").write_text(
-        "host: web1\nsources:\n  - {name: a, path: /srv/a}\n"
-    )
-    (tmp_path / "cfg/targets/delta.yaml").write_text(
-        "sources:\n  - {name: a, path: /srv/a}\n"
-        "dumps:\n  - {name: d, type: command, run: 'true', delta: {full_every: 5}}\n"
-    )
-    assert cli("run", "delta") == 2  # delta dumps arrive in milestone 5
 
 
 def test_status_and_snapshots_json(

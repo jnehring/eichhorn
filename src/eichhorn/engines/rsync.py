@@ -24,6 +24,7 @@ from eichhorn.stores.base import StoreCapabilities
 from eichhorn.tools import local_rsync
 
 RECEIVED_RE = re.compile(r"Total bytes received:\s*([\d,.]+)")
+SENT_RE = re.compile(r"Total bytes sent:\s*([\d,.]+)")
 
 
 class RsyncEngine:
@@ -88,8 +89,13 @@ class RsyncEngine:
             stats.warnings.append("some files vanished during the transfer (rsync exit 24)")
         elif code != 0:
             raise EichhornError(f"rsync failed for {source.name!r} (exit {code}): {errors.text()}")
-        m = RECEIVED_RE.search(out)
-        received = int(re.sub(r"[,.]", "", m.group(1))) if m else 0
+        # pulling from a host, the data is "received"; copying locally, it is "sent"
+        numbers = [
+            int(re.sub(r"[,.]", "", m.group(1)))
+            for m in (RECEIVED_RE.search(out), SENT_RE.search(out))
+            if m
+        ]
+        received = max(numbers, default=0)
 
         entries: list[Entry] = [Entry(prefix, "dir")]
         seen: set[str] = set()

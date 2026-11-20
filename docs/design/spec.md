@@ -3,9 +3,20 @@
 > *Eichhorn* (German, short for *Eichhörnchen*): squirrel. It hides its supplies
 > in many places and finds them again when it needs them.
 
-**Status:** Draft v0.6, 2026-11-20
+**Status:** v0.7, 2026-11-20 – implemented (milestones 1–6)
 
-**Changes since v0.5:**
+**Changes since v0.6 (made during implementation):**
+- Delta dumps: the full dump is always named `<name>.base.<ext>.zst`, also in the snapshot
+  where it is made. So the base has the same path and hash in every snapshot, and
+  hardlinks, sparse storage and pruning need no special case (5.8).
+- `repo init` registers repositories in a machine-managed `repositories.yaml` next to
+  `eichhorn.yaml` (4.2).
+- The web interface uses a few lines of its own JavaScript instead of htmx (9.2).
+- Restore and the content lookup for sparse storage (3.8) were built in milestone 3,
+  because restore, verify and prune need them on exFAT drives.
+- New command `eichhorn dump` writes a dump as plain SQL, for delta dumps too.
+
+**Changes in v0.6:**
 - Published as open source on **GitHub** and **PyPI** (11.6).
 - **Documentation** as Markdown in the repository, readable directly on
   GitHub (11.7).
@@ -922,9 +933,8 @@ without Eichhorn:
 
 | File in `dumps/` | Content |
 |---|---|
-| `nextcloud.base.sql.zst` | The full dump this snapshot's patch refers to. It is a **hardlink** to the file in the snapshot where that full dump was made, so it costs no space. |
-| `nextcloud.patch.zst` | The patch: `zstd --patch-from=<base> <new dump>`. |
-| `nextcloud.sql.zst` | Used instead of the two files above in a snapshot that makes a new full dump. |
+| `nextcloud.base.sql.zst` | The full dump. In the snapshot where it is made it is a normal file. In snapshots that store a patch, it is a **hardlink** to that file (with sparse storage: an index entry with `here: false`), so it costs no space. |
+| `nextcloud.patch.zst` | The patch: `zstd --patch-from=<base> <new dump>`. Only in snapshots that store one. |
 
 Rules:
 - A patch always refers **directly to a full dump**, never to another patch,
@@ -1222,9 +1232,9 @@ Only new data is hashed, so the run stays fast:
 ### 9.2 Technology
 
 - The web UI and the CLI use the same Python core, with no logic duplicated.
-- Server: **FastAPI + Jinja2 templates + htmx**. Pages are rendered on the
-  server, with no JavaScript build step. htmx and a small CSS file are bundled
-  in the package. Live logs use Server-Sent Events.
+- Server: **FastAPI + Jinja2 templates**. Pages are rendered on the server, with
+  no JavaScript build step; a small script and stylesheet are bundled in the
+  package. Live logs use Server-Sent Events.
 - The web UI is an optional extra: `pip install "eichhorn[web]"`.
 - Long runs are executed in a background worker inside the server process. Only
   one run per repository at a time, enforced by the same lock as the CLI.

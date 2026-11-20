@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="row">
+  <h1>Dashboard</h1><span class="spacer"></span>
+  {% if cfg.targets %}{% with run_target="__all__" %}{% include "_run_form.html" %}{% endwith %}{% endif %}
+</div>
+
+{% if repos %}
+<div class="grid" style="margin:16px 0 8px">
+  {% for r in repos %}
+  {% set used, total = disk[r.name] %}
+  <div class="card">
+    <h3>💾 {{ r.name }} <span class="pill">{{ r.meta.filesystem }} · {{ r.meta.storage }}</span></h3>
+    {{ meter(used, total)|safe }}
+    <small>{{ (total - used)|size }} free of {{ total|size }} · <span class="mono">{{ r.root }}</span></small>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="notice">No backup drive is connected. Plug one in, or create a repository with
+<code>eichhorn repo init PATH --name NAME</code>.</p>
+{% endif %}
+
+<h2>Targets</h2>
+{% if not cards %}<p class="muted">No targets yet. Create one with <code>eichhorn target new NAME</code>.</p>{% endif %}
+<div class="grid">
+{% for c in cards %}
+  <div class="card">
+    <h3><a href="/t/{{ c.name|urlq }}">{{ c.name }}</a> <span class="pill">{{ c.target.host }}</span></h3>
+    {% if c.target.description %}<p class="muted" style="margin:0 0 8px">{{ c.target.description }}</p>{% endif %}
+    <table>
+    {% for row in c.rows %}
+      <tr>
+        <td>{{ row.repo }}{% if not row.connected %} <small>(unplugged)</small>{% endif %}</td>
+        {% if row.snapshot %}
+        <td>{{ row.finished|age }}</td>
+        <td><span class="badge {{ row.status }}">{{ row.status }}</span>
+            {% if row.verify %}<span class="badge {{ row.verify }}" title="last verify">✓ {{ row.verify }}</span>{% endif %}
+            {% if row.unfinished %}<span class="badge warn">unfinished</span>{% endif %}</td>
+        <td class="num">{{ row.size|size }}</td>
+        {% elif row.connected %}<td colspan="3" class="muted">never</td>
+        {% else %}<td colspan="3"></td>{% endif %}
+      </tr>
+    {% endfor %}
+    </table>
+  </div>
+{% endfor %}
+</div>
+{% endblock %}

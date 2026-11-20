@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}{{ target }}{% endblock %}
+{% block content %}
+<p class="muted"><a href="/">Dashboard</a> /</p>
+<div class="row">
+  <h1>{{ target }}</h1>
+  {% if t %}<span class="pill">{{ t.host }}</span>{% endif %}
+  <span class="spacer"></span>
+  {% if t %}{% with run_target=target %}{% include "_run_form.html" %}{% endwith %}{% endif %}
+</div>
+{% if t and t.description %}<p class="muted">{{ t.description }}</p>{% endif %}
+
+{% if repos_with|length > 1 %}
+<p>Repository:
+{% for r in repos_with %}
+  {% if r.name == chosen.name %}<strong>{{ r.name }}</strong>{% else %}<a href="/t/{{ target|urlq }}?repo={{ r.name|urlq }}">{{ r.name }}</a>{% endif %}
+{% endfor %}</p>
+{% endif %}
+
+{% if not chosen %}
+<p class="muted">No snapshots of {{ target }} in the connected repositories yet.</p>
+{% else %}
+<div class="row">
+  <form class="inline" method="post" action="/jobs/verify">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="target" value="{{ target }}">
+    <input type="hidden" name="repo" value="{{ chosen.name }}">
+    <label class="check"><input type="checkbox" name="all_snapshots" value="1"> all snapshots</label>
+    <label class="check"><input type="checkbox" name="against_source" value="1"> against the source</label>
+    <button class="secondary">Verify</button>
+  </form>
+  <form class="inline" method="post" action="/jobs/prune" data-confirm="Delete old snapshots of {{ target }} according to the retention rules?">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="target" value="{{ target }}">
+    <button class="secondary">Prune</button>
+  </form>
+  <span class="spacer"></span>
+  <form class="inline" method="get" action="/t/{{ target|urlq }}/{{ chosen.name|urlq }}/at">
+    <input type="date" name="date" required aria-label="Browse as of date">
+    <button class="secondary">Browse as of date</button>
+  </form>
+</div>
+
+<h2>Snapshots in {{ chosen.name }}</h2>
+<div class="scroll">
+<table>
+  <tr><th>Snapshot</th><th>Status</th><th class="num">Files</th><th class="num">Size</th>
+      <th>Changes</th><th class="num">Stored</th><th class="num">Time</th><th>Label</th><th></th></tr>
+  {% for s in rows %}
+  <tr>
+    <td class="mono"><a href="/t/{{ target|urlq }}/{{ chosen.name|urlq }}/{{ s.snapshot }}">{{ s.snapshot|snapdate }}</a></td>
+    <td><span class="badge {{ s.status }}">{{ s.status }}</span></td>
+    <td class="num">{{ s.files }}</td>
+    <td class="num">{{ s.logical_bytes|size }}</td>
+    <td>{% if s.new %}<span class="add">+{{ s.new }}</span> {% endif %}{% if s.changed %}<span class="chg">~{{ s.changed }}</span> {% endif %}{% if s.deleted %}<span class="del">−{{ s.deleted }}</span>{% endif %}{% if not (s.new or s.changed or s.deleted) %}<span class="muted">none</span>{% endif %}</td>
+    <td class="num">{{ s.stored_bytes|size }}</td>
+    <td class="num">{{ s.duration_s|duration }}</td>
+    <td>
+      <form class="inline" method="post" action="/t/{{ target|urlq }}/{{ chosen.name|urlq }}/{{ s.snapshot }}/label">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="back" value="/t/{{ target|urlq }}?repo={{ chosen.name|urlq }}">
+        <input name="label" value="{{ s.label or '' }}" size="14" aria-label="label">
+      </form>
+    </td>
+    <td>
+      <form class="inline" method="post" action="/t/{{ target|urlq }}/{{ chosen.name|urlq }}/{{ s.snapshot }}/pin">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="back" value="/t/{{ target|urlq }}?repo={{ chosen.name|urlq }}">
+        <input type="hidden" name="pinned" value="{{ '0' if s.pinned else '1' }}">
+        <button class="link" title="{{ s.note or '' }}">{{ '📌 unpin' if s.pinned else 'pin' }}</button>
+      </form>
+      <a href="/t/{{ target|urlq }}/{{ chosen.name|urlq }}/{{ s.snapshot }}/browse">browse</a>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+
+{% if rows|length > 1 %}
+<form class="inline" method="get" action="/t/{{ target|urlq }}/{{ chosen.name|urlq }}/diff" style="margin-top:12px">
+  Compare
+  <select name="a">{% for s in rows %}<option {% if loop.index == 2 %}selected{% endif %}>{{ s.snapshot }}</option>{% endfor %}</select>
+  with
+  <select name="b">{% for s in rows %}<option>{{ s.snapshot }}</option>{% endfor %}</select>
+  <button class="secondary">Diff</button>
+</form>
+{% endif %}
+
+<h2>Statistics</h2>
+<div class="grid">
+  <div class="card"><h3>Size of each snapshot</h3>{{ chart_size|safe }}</div>
+  <div class="card"><h3>New data stored per run</h3>{{ chart_stored|safe }}</div>
+  <div class="card"><h3>New / changed / deleted files</h3>{{ chart_changes|safe }}</div>
+  <div class="card"><h3>Duration per run</h3>{{ chart_time|safe }}</div>
+</div>
+{% endif %}
+{% endblock %}

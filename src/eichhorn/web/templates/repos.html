@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Repositories{% endblock %}
+{% block content %}
+<h1>Repositories</h1>
+<div class="grid" style="margin-top:16px">
+{% for r in rows %}
+  <div class="card">
+    <h3>💾 {{ r.name }}</h3>
+    {% if not r.connected %}<p class="muted">Not connected.</p>
+    {% else %}{% set st = r.st %}
+    {{ r.meter|safe }}
+    <dl class="kv">
+      <dt>Path</dt><dd class="mono">{{ st.path }}</dd>
+      <dt>File system</dt><dd>{{ st.filesystem }} · {{ st.storage }}</dd>
+      <dt>Used</dt><dd>{{ st.used_bytes|size }} of {{ st.total_bytes|size }} ({{ st.free_bytes|size }} free)</dd>
+      <dt>Growth</dt><dd>{% if st.growth_per_day %}{{ st.growth_per_day|size }} per day{% else %}–{% endif %}</dd>
+      <dt>Full in</dt><dd>{% if st.full_in_days %}about {{ st.full_in_days|round|int }} days{% else %}–{% endif %}</dd>
+      <dt>Snapshots</dt><dd>{% for t, n in st.snapshots.items() %}{{ t }}: {{ n }}{% if not loop.last %}, {% endif %}{% endfor %}</dd>
+    </dl>
+    <h3 style="margin-top:12px">Space per target</h3>
+    {{ r.chart|safe }}
+    {% endif %}
+  </div>
+{% endfor %}
+</div>
+{% if repos|length > 1 %}
+<h2>Sync</h2>
+<p class="muted">Copy snapshots that are missing on one drive from the other, without contacting the servers.</p>
+<form class="inline" method="post" action="/jobs/sync">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  From <select name="src">{% for r in repos %}<option>{{ r.name }}</option>{% endfor %}</select>
+  to <select name="dst">{% for r in repos %}<option {% if loop.index == 2 %}selected{% endif %}>{{ r.name }}</option>{% endfor %}</select>
+  <label class="check"><input type="checkbox" name="both" value="1"> both directions</label>
+  <button>Sync</button>
+</form>
+{% endif %}
+{% endblock %}

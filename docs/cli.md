@@ -52,6 +52,24 @@ eichhorn repo scan [-h] [repo]
 |---|---|
 | `repo` | repository name (default: all connected) |
 
+## `eichhorn repo sync`
+
+Copy missing snapshots from one repository to another.
+
+```text
+eichhorn repo sync [-h] [--target T] [--both] [--dry-run] [--no-prune] [--include-older] SRC DST
+```
+
+| Argument | Meaning |
+|---|---|
+| `SRC` |  |
+| `DST` |  |
+| `--target` `T` | only this target (repeatable) |
+| `--both` | sync in both directions |
+| `--dry-run` | only show what would be copied |
+| `--no-prune` | do not prune the destination |
+| `--include-older` | also copy snapshots older than the destination's oldest |
+
 ## `eichhorn repo unlock`
 
 Remove a stale lock.
@@ -120,12 +138,12 @@ eichhorn run [-h] [--all] [--repo NAME] [--all-repos] [--label LABEL] [--pin] [-
 | `TARGET` |  |
 | `--all` | all targets |
 | `--repo` `NAME` | repository to write to |
-| `--all-repos` | every connected repository (milestone 4) |
+| `--all-repos` | every connected repository the target belongs to |
 | `--label` `LABEL` | a note for the new snapshot |
 | `--pin` | never prune the new snapshot |
 | `--dry-run` | show what would be copied |
 | `--restart` | throw away an unfinished run instead of resuming it |
-| `--no-prune` | skip pruning (milestone 3) |
+| `--no-prune` | do not prune after the run |
 
 ## `eichhorn doctor`
 
@@ -146,6 +164,174 @@ List recipes and their parameters.
 ```text
 eichhorn recipe list [-h]
 ```
+
+## `eichhorn prune`
+
+Delete old snapshots according to the retention rules.
+
+```text
+eichhorn prune [-h] [--repo NAME] [--dry-run] [TARGET ...]
+```
+
+| Argument | Meaning |
+|---|---|
+| `TARGET` | default: all targets |
+| `--repo` `NAME` |  |
+| `--dry-run` | only show what would be deleted |
+
+## `eichhorn pin`
+
+Never prune a snapshot.
+
+```text
+eichhorn pin [-h] [--repo NAME] [--note NOTE] target snapshot
+```
+
+| Argument | Meaning |
+|---|---|
+| `target` |  |
+| `snapshot` | snapshot name, a unique prefix of it, or latest |
+| `--repo` `NAME` |  |
+| `--note` `NOTE` | why it is pinned |
+
+## `eichhorn unpin`
+
+Allow pruning again.
+
+```text
+eichhorn unpin [-h] [--repo NAME] target snapshot
+```
+
+| Argument | Meaning |
+|---|---|
+| `target` |  |
+| `snapshot` | snapshot name, a unique prefix of it, or latest |
+| `--repo` `NAME` |  |
+
+## `eichhorn label`
+
+Set or remove a snapshot's label.
+
+```text
+eichhorn label [-h] [--repo NAME] target snapshot text
+```
+
+| Argument | Meaning |
+|---|---|
+| `target` |  |
+| `snapshot` | snapshot name, a unique prefix of it, or latest |
+| `text` | the label; an empty text removes it |
+| `--repo` `NAME` |  |
+
+## `eichhorn diff`
+
+What changed between two snapshots.
+
+```text
+eichhorn diff [-h] [--repo NAME] target [SNAP_A] [SNAP_B]
+```
+
+| Argument | Meaning |
+|---|---|
+| `target` |  |
+| `SNAP_A` | default: the second newest |
+| `SNAP_B` | default: the newest |
+| `--repo` `NAME` |  |
+
+## `eichhorn find`
+
+Find a file in all snapshots and show its versions.
+
+```text
+eichhorn find [-h] [--repo NAME] [--limit LIMIT] target pattern
+```
+
+| Argument | Meaning |
+|---|---|
+| `target` |  |
+| `pattern` | a name or glob, e.g. report.docx, '*.jpg', 'docs/*/a.txt' |
+| `--repo` `NAME` |  |
+| `--limit` `LIMIT` | show at most N files |
+
+## `eichhorn restore`
+
+Copy files out of a snapshot.
+
+```text
+eichhorn restore [-h] --to DEST [--force] [--sudo] [--repo NAME] target snapshot [path]
+```
+
+| Argument | Meaning |
+|---|---|
+| `target` |  |
+| `snapshot` | snapshot name, a unique prefix of it, or latest |
+| `path` | file or folder in the snapshot (default: everything) |
+| `--to` `DEST` | a local folder, or host:/path to restore onto a server |
+| `--force` | overwrite existing files |
+| `--sudo` | unpack with sudo on the server |
+| `--repo` `NAME` |  |
+
+## `eichhorn dump`
+
+Write a database dump from a snapshot, uncompressed.
+
+```text
+eichhorn dump [-h] [--to FILE] [--force] [--repo NAME] target snapshot name
+```
+
+| Argument | Meaning |
+|---|---|
+| `target` |  |
+| `snapshot` | snapshot name, a unique prefix of it, or latest |
+| `name` | the dump's name in the target config |
+| `--to` `FILE` | write to FILE (default: standard output) |
+| `--force` | overwrite FILE |
+| `--repo` `NAME` |  |
+
+## `eichhorn verify`
+
+Check snapshots against their checksums.
+
+```text
+eichhorn verify [-h] [--all] [--all-snapshots] [--sample PCT] [--against-source] [--repo NAME] [target] [snapshot]
+```
+
+| Argument | Meaning |
+|---|---|
+| `target` |  |
+| `snapshot` | default: latest |
+| `--all` | all targets |
+| `--all-snapshots` | every snapshot |
+| `--sample` `PCT` | check a random PCT %% of files |
+| `--against-source` | also compare the snapshot with the host |
+| `--repo` `NAME` |  |
+
+## `eichhorn stats`
+
+Statistics of a repository, a target or a snapshot.
+
+```text
+eichhorn stats [-h] [--repo NAME] [target] [snapshot]
+```
+
+| Argument | Meaning |
+|---|---|
+| `target` |  |
+| `snapshot` |  |
+| `--repo` `NAME` |  |
+
+## `eichhorn serve`
+
+Start the web interface.
+
+```text
+eichhorn serve [-h] [--listen ADDR] [--no-browser]
+```
+
+| Argument | Meaning |
+|---|---|
+| `--listen` `ADDR` | address (default: 127.0.0.1:8765) |
+| `--no-browser` | do not open a browser |
 
 ## `eichhorn status`
 

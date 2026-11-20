@@ -15,11 +15,14 @@ changelog. The complete design is in [section 3 of the specification](design/spe
       snapshots/
         2026-11-20T14-30-05/
           files/<source>/…        the backed-up files
-          dumps/                  database dumps (milestone 2)
+          dumps/                  database dumps: <name>.sql.gz, or with delta
+                                  <name>.base.sql.zst (+ <name>.patch.zst)
           checksums.sha256
           metadata.jsonl.gz
           snapshot.json
       latest                      text file: name of the newest snapshot
+      annotations.yaml            pins and labels added later
+      .prune-journal              only while a prune moves files (sparse storage)
       .incomplete-<date>/         a run in progress or interrupted
       .abandoned-<date>/          an unfinished run older than resume_max_age
   logs/

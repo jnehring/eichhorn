@@ -85,9 +85,14 @@ Backup-A/eichhorn/targets/documents/snapshots/2026-11-20T14-30-05/files/document
 
 and copy the file you need. That's all – the backup is plain files.
 
-> [!NOTE]
-> A `restore` command that also restores owners, permissions and original file names
-> comes with milestone 3.
+Or let Eichhorn do it, with permissions, times and original names:
+
+```bash
+eichhorn find documents 'Letter*'
+eichhorn restore documents latest documents/Letter.docx --to ~/Desktop
+```
+
+Prefer clicking? `eichhorn serve` opens the [web interface](web-ui.md).
 
 ---
 
